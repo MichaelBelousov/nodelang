@@ -73,6 +73,10 @@ class Ast:
   # The top level of the AST for a file
   Module = Namespace
 
+  ArrayLiteral = List
+
+  Literal = Union[str, int, float, ArrayLiteral]
+
 # figure out how to do string enums in python typing
 NodeType = Union[
   "CUSTOM",
@@ -98,30 +102,41 @@ generic_node_types: Dict[Tuple[NodeType, Dict[str, Any]], OpType] = {
   ('MATH', {'operation': 'sin'}): OpType(name='sin', op_type="function"),
 }
 
-ArrayLiteral = List
-
-Literal = Union[str, int, float, ArrayLiteral]
-
 def material_nodes_to_ast(material: bpy.types.Material) -> Ast:
   module = Ast.Module()
   root = module
 
-  def visit_node(node: bpy.types.Node) -> Union[Ast.ConstDecl, Literal]:
+  # maybe calling them nodes and codes is a good idea
+  node_to_code: Dict[str, Any] = {}
+
+  tree = material.node_tree
+
+  def visit_node(node: bpy.types.Node) -> Union[Ast.ConstDecl, Ast.Literal]:
+    # TODO: use a mapping for this
+    if node.type == "VALUE":
+      node_to_code[node.name] = node.value
+
     for links in node.inputs:
       assert len(links) <= 1, "can not have multiple input links"
       link, = links
-      node = link.get_node()
+      # probably better to just traverse all links and all nodes into a direct neighbor graph at startup
+      node = next(n for n in tree.nodes if link in node.output.links) # need to map outputs to their links actually...
       types = [blender_type_to_primitive[socket.type] for socket in node.outputs]
       type = types[0] if len(node.outputs) == 1 else Struct(members=types)
       root.prepend_decl(Ast.ConstDecl(name=node.name, comment=node.label, type=type))
-      input: Ast.ConstDecl = visit_node(node)
-      # FIXME: calculate input
+      input: Ast.ConstDecl = (
+        node_to_code[node.name]
+        if node.name in node_to_code
+        else visit_node(node)
+      )
 
+    # FIXME: calculate input
     root.append_decl(Ast.StructAssignment(name=input.name, field=node.inputs[0], value=""))
 
-  tree = material.node_tree
   # FIXME: so apparently you can have separate outputs for eevee/cycles, need to handle that somehow...
   output = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   visit_node(output)
 
 material_nodes_to_ast(bpy.data.materials["Test"])
+
+functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']
