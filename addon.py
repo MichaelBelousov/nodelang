@@ -6,13 +6,15 @@ hopefully...
 
 from ctypes import Union
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 from __future__ import annotations
 import bpy
+from collections import defaultdict
 
-PrimitiveType = str
 
 primitive_types: List[PrimitiveType] = ['f32', 'i32', 'u32']
+
+PrimitiveType = type(primitive_types)
 
 blender_type_to_primitive = {
   'CUSTOM': '',
@@ -34,6 +36,9 @@ class Struct:
 Type = Union[PrimitiveType, Struct]
 
 class Ast:
+  ArrayLiteral = List
+  Literal = Union[str, int, float, ArrayLiteral]
+
   @dataclass
   class Node:
     """A node of the Ast"""
@@ -43,10 +48,30 @@ class Ast:
     third: Optional[Ast.Node]
 
   @dataclass
+  class VarRef(Node):
+    name: str
+    derefs: List[str] # maybe convert this to binary dot operators
+
+  Expr = Union[Ast.Literal, VarRef]
+
+  @dataclass
+  class Call(Node):
+    name: str
+    args: List[Ast.Expr]
+
+  @dataclass
+  class BinOp(Node):
+    name: str
+    left: Ast.Expr
+    right: Ast.Expr
+    op: Union["+", "-"]
+
+  @dataclass
   class ConstDecl(Node):
     name: str
     comment: Optional[str]
     type: Type
+    value: Union[Ast.Literal, Ast.VarRef]
 
   @dataclass
   class StructAssignment(Node):
@@ -73,12 +98,7 @@ class Ast:
   # The top level of the AST for a file
   Module = Namespace
 
-  ArrayLiteral = List
-
-  Literal = Union[str, int, float, ArrayLiteral]
-
-# figure out how to do string enums in python typing
-NodeType = Union[
+NodeType = Literal[
   "CUSTOM",
   "OUTPUT_MATERIAL",
 ]
@@ -106,36 +126,68 @@ def material_nodes_to_ast(material: bpy.types.Material) -> Ast:
   module = Ast.Module()
   root = module
 
-  # maybe calling them nodes and codes is a good idea
-  node_to_code: Dict[str, Any] = {}
-
   tree = material.node_tree
 
-  def visit_node(node: bpy.types.Node) -> Union[Ast.ConstDecl, Ast.Literal]:
+  # link to the nodes it comes from
+  link_sources: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
+  # link to the nodes it goes to
+  link_targets: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
+
+  for n in tree.nodes:
+    for o in n.outputs:
+      link_sources[o].append(n)
+    for i in n.inputs:
+      link_targets[i].append(n)
+
+  # map of a node to its inputs
+  inputs_graph: Dict[bpy.types.NodeLink, List[bpy.types.NodeLink]] = defaultdict(list)
+
+  for link in tree.links:
+    source, *otherSources = link_sources[link]
+    target, *otherTargets = link_targets[link]
+    assert len(otherSources) == 0, "links must have one source node"
+    assert len(otherTargets) == 0, "links must have one target node"
+    inputs_graph[target].append(source)
+
+  # maybe calling them nodes and codes is a good idea
+  node_to_code: Dict[bpy.types.Node, Any] = {}
+
+  def get_code_for_input(node: bpy.types.Node) -> Union[Ast.VarRef, Ast.Literal]:
+    maybe_already_visited = node_to_code.get(node)
+    if maybe_already_visited is not None: return maybe_already_visited
+
+    # handle primitives
     # TODO: use a mapping for this
     if node.type == "VALUE":
       node_to_code[node.name] = node.value
 
-    for links in node.inputs:
-      assert len(links) <= 1, "can not have multiple input links"
-      link, = links
-      # probably better to just traverse all links and all nodes into a direct neighbor graph at startup
-      node = next(n for n in tree.nodes if link in node.output.links) # need to map outputs to their links actually...
-      types = [blender_type_to_primitive[socket.type] for socket in node.outputs]
-      type = types[0] if len(node.outputs) == 1 else Struct(members=types)
-      root.prepend_decl(Ast.ConstDecl(name=node.name, comment=node.label, type=type))
-      input: Ast.ConstDecl = (
-        node_to_code[node.name]
-        if node.name in node_to_code
-        else visit_node(node)
-      )
+    # handle compounds
+
+    # create decl
+    args = [get_code_for_input(input_node) for input_node in inputs_graph[node]]
+    decl = Ast.ConstDecl(name=node.name, comment=node.label, type=type, value=[])
+    root.prepend_decl(decl)
+    node_to_code[node] = decl
+
+    in_node = link_sources[out_link]
+    # TODO: cache outputs from links?
+    node_output = next(o for o in in_node.outputs if o.links[0] == out_link)
+    return Ast.VarRef(decl.name, [node_output.name])
+
+    types = [blender_type_to_primitive[socket.type] for socket in node.outputs]
+    type = (
+      types[0]
+      if len(node.outputs) == 1
+      else Struct(members=types)
+    )
 
     # FIXME: calculate input
     root.append_decl(Ast.StructAssignment(name=input.name, field=node.inputs[0], value=""))
 
   # FIXME: so apparently you can have separate outputs for eevee/cycles, need to handle that somehow...
-  output = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
-  visit_node(output)
+  material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
+  get_code_for_input(material_out)
+
 
 material_nodes_to_ast(bpy.data.materials["Test"])
 

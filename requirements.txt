@@ -1,2 +1,1 @@
-future-fstrings
-wheel
+# this isn't really complete yet

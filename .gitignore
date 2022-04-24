@@ -4,3 +4,7 @@ __pycache__
 
 # blender
 *.blend[0-9]
+
+# vim
+.*.sw[m-s]
+.sw[m-s]
