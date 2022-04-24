@@ -4,6 +4,7 @@ blender addon for seamlessly integrating nodelang into your material workflow
 hopefully...
 """
 
+from abc import ABC
 from ctypes import Union
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
@@ -39,13 +40,9 @@ class Ast:
   ArrayLiteral = List
   Literal = Union[str, int, float, ArrayLiteral]
 
-  @dataclass
-  class Node:
+  class Node(ABC):
     """A node of the Ast"""
-    name: str
-    first: Optional[Ast.Node]
-    second: Optional[Ast.Node]
-    third: Optional[Ast.Node]
+    pass
 
   @dataclass
   class VarRef(Node):
@@ -122,17 +119,23 @@ generic_node_types: Dict[Tuple[NodeType, Dict[str, Any]], OpType] = {
   ('MATH', {'operation': 'sin'}): OpType(name='sin', op_type="function"),
 }
 
-def material_nodes_to_ast(material: bpy.types.Material) -> Ast:
+def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] = None) -> Ast:
   module = Ast.Module()
   root = module
 
   tree = material.node_tree
+
+  @dataclass
+  class InputNode:
+    node: bpy.types.Node
+    source_socket: bpy.types.NodeSocketShader
 
   # link to the nodes it comes from
   link_sources: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
   # link to the nodes it goes to
   link_targets: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
 
+  # FIXME: looks like there is in fact a link.to_socket.node property so this entire thing is unnecessary
   for n in tree.nodes:
     for o in n.outputs:
       link_sources[o].append(n)
@@ -140,14 +143,14 @@ def material_nodes_to_ast(material: bpy.types.Material) -> Ast:
       link_targets[i].append(n)
 
   # map of a node to its inputs
-  inputs_graph: Dict[bpy.types.NodeLink, List[bpy.types.NodeLink]] = defaultdict(list)
+  inputs_graph: Dict[bpy.types.Node, List[InputNode]] = defaultdict(list)
 
   for link in tree.links:
     source, *otherSources = link_sources[link]
     target, *otherTargets = link_targets[link]
     assert len(otherSources) == 0, "links must have one source node"
     assert len(otherTargets) == 0, "links must have one target node"
-    inputs_graph[target].append(source)
+    inputs_graph[target].append(InputNode(source, link.from_socket))
 
   # maybe calling them nodes and codes is a good idea
   node_to_code: Dict[bpy.types.Node, Any] = {}
@@ -156,33 +159,24 @@ def material_nodes_to_ast(material: bpy.types.Material) -> Ast:
     maybe_already_visited = node_to_code.get(node)
     if maybe_already_visited is not None: return maybe_already_visited
 
-    # handle primitives
+    ## handle primitives
     # TODO: use a mapping for this
     if node.type == "VALUE":
       node_to_code[node.name] = node.value
 
-    # handle compounds
+    ## handle compounds
 
     # create decl
-    args = [get_code_for_input(input_node) for input_node in inputs_graph[node]]
-    decl = Ast.ConstDecl(name=node.name, comment=node.label, type=type, value=[])
+    # TODO: assert there is not more than 1 input link
+    args = [get_code_for_input(i.node, i.link[0].from_socket.name) if i.is_linked else i for i in node.inputs]
+    # TODO: use generic node type map here
+    compound = Ast.Call(name=node.name, args=args)
+    # TODO: consolidate with Ast.StructAssignment
+    decl = Ast.ConstDecl(name=node.name, comment=node.label, type=type, value=compound)
     root.prepend_decl(decl)
     node_to_code[node] = decl
 
-    in_node = link_sources[out_link]
-    # TODO: cache outputs from links?
-    node_output = next(o for o in in_node.outputs if o.links[0] == out_link)
-    return Ast.VarRef(decl.name, [node_output.name])
-
-    types = [blender_type_to_primitive[socket.type] for socket in node.outputs]
-    type = (
-      types[0]
-      if len(node.outputs) == 1
-      else Struct(members=types)
-    )
-
-    # FIXME: calculate input
-    root.append_decl(Ast.StructAssignment(name=input.name, field=node.inputs[0], value=""))
+    return Ast.VarRef(decl.name, [subfield] if subfield else [])
 
   # FIXME: so apparently you can have separate outputs for eevee/cycles, need to handle that somehow...
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
