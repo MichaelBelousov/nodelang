@@ -48,7 +48,9 @@ class Ast:
     return any(isinstance(val, T) for T in Ast.literal_types)
 
   def serializeLiteral(literal: Literal) -> str:
-    return 
+    if isinstance(literal, list):
+      return f"[{', '.join(serializeLiteral(l) for l in literal)}]"
+    return str(literal)
 
   class Node(ABC):
     """A node of the Ast"""

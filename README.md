@@ -1,7 +1,7 @@
 
 # nodelang
 
-A language for parity with node graphs, particularly targetting blender's material and geometry node graphs.
+An almost completely unimplemented language for parity with node graphs, particularly targetting blender's material and geometry node graphs.
 
 
 ## ideas
