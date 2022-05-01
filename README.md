@@ -65,6 +65,34 @@ fn main(ctx: Context) Result {
 
 ```
 
+## alternative
+
+Perhaps to best be isomorphic with node trees, a lisp dialect is in order... sounds unpopular though
+
+```nodelang-lisp
+; look at this cute `.property` shorthand syntax for building objects. I wonder how other lisps do it
+(material-out
+  (.surface
+    (principled-bsdf (.albedo (+ #ff23ab
+                                 uv.blah)))
+  )
+)
+```
+
+Another option is to keep infix binary operators but format them like trees:
+
+```nodelang-binop
+
+fn main(ctx: Context) Result {
+  Result result;
+  result.surface = PrincipledBsdf(
+    albedo=   #ff23ab
+            + uv.blah
+  );
+}
+
+```
+
 ## Development
 
 First, find the path of the modules folder for your blender install. You can find it by running

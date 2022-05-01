@@ -37,17 +37,36 @@ class Struct:
 Type = Union[PrimitiveType, Struct]
 
 class Ast:
-  ArrayLiteral = List
+  primitive_literal_types = [str, int, float]
+  # python 3.11 required to unpack in a subscript
+  ArrayLiteral = List[str, int, float]
+  literal_types = [*primitive_literal_types, ArrayLiteral]
+  # ditto
   Literal = Union[str, int, float, ArrayLiteral]
+
+  def isLiteral(val):
+    return any(isinstance(val, T) for T in Ast.literal_types)
+
+  def serializeLiteral(literal: Literal) -> str:
+    return 
 
   class Node(ABC):
     """A node of the Ast"""
     pass
 
+    def serialize(self) -> str:
+      return "<EMPTY NODE>"
+
   @dataclass
   class VarRef(Node):
     name: str
     derefs: List[str] # maybe convert this to binary dot operators
+
+    def serialize(self):
+      if not self.derefs:
+        return self.name
+      else:
+        return f'{self.name}.{".".join(self.derefs)}'
 
   Expr = Union[Ast.Literal, VarRef]
 
@@ -56,12 +75,18 @@ class Ast:
     name: str
     args: List[Ast.Expr]
 
+    def serialize(self):
+      return f'{self.name}({", ".join(a.serialize() for a in self.args)})'
+
   @dataclass
   class BinOp(Node):
     name: str
     left: Ast.Expr
     right: Ast.Expr
     op: Union["+", "-"]
+
+    def serialize(self):
+      return f'{self.name}({", ".join(self.args)})'
 
   @dataclass
   class ConstDecl(Node):
@@ -113,10 +138,10 @@ node_types: Dict[NodeType, OpType] = {
 
 # list of generic nodes with specializations
 generic_node_types: Dict[Tuple[NodeType, Dict[str, Any]], OpType] = {
-  ('MATH', {'operation': 'add'}): OpType(name='+', op_type="binary"),
-  ('MATH', {'operation': 'sub'}): OpType(name='-', op_type="binary"),
-  ('MATH', {'operation': 'atan2'}): OpType(name='atan2', op_type="function"),
-  ('MATH', {'operation': 'sin'}): OpType(name='sin', op_type="function"),
+  ('MATH', {'operation': 'ADD'}): OpType(name='+', op_type="binary"),
+  ('MATH', {'operation': 'SUB'}): OpType(name='-', op_type="binary"),
+  ('MATH', {'operation': 'ATAN2'}): OpType(name='atan2', op_type="function"),
+  ('MATH', {'operation': 'SIN'}): OpType(name='sin', op_type="function"),
 }
 
 def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] = None) -> Ast:
@@ -181,7 +206,6 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
   # FIXME: so apparently you can have separate outputs for eevee/cycles, need to handle that somehow...
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   get_code_for_input(material_out)
-
 
 material_nodes_to_ast(bpy.data.materials["Test"])
 
