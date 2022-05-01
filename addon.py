@@ -10,6 +10,7 @@ from __future__ import annotations
 import bpy
 from collections import defaultdict
 from . import ast
+from .util import freezeDict, FrozenDict
 
 blender_type_to_primitive = {
   'CUSTOM': '',
@@ -24,28 +25,29 @@ blender_type_to_primitive = {
   'GEOMETRY': 'f32',
 }
 
-NodeType = Literal[
+BlenderNodeType = Literal[
   "CUSTOM",
   "OUTPUT_MATERIAL",
 ]
 
+# TODO: move to code/data/types module
 @dataclass
 class OpType():
   """A primitive operation (operator or function) in the context"""
   name: str
   op_type: Literal["binary", "unary", "function"]
 
-node_types: Dict[NodeType, OpType] = {
+node_types: Dict[BlenderNodeType, OpType] = {
   'CUSTOM': '',
   'OUTPUT_MATERIAL': '',
 }
 
-# list of generic nodes with specializations
-generic_node_types: Dict[Tuple[NodeType, Dict[str, Any]], OpType] = {
-  ('MATH', {'operation': 'ADD'}): OpType(name='+', op_type="binary"),
-  ('MATH', {'operation': 'SUB'}): OpType(name='-', op_type="binary"),
-  ('MATH', {'operation': 'ATAN2'}): OpType(name='atan2', op_type="function"),
-  ('MATH', {'operation': 'SIN'}): OpType(name='sin', op_type="function"),
+# list of generic nodes in blender (e.g. Math) which we specialize
+generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], OpType] = {
+  ('MATH', freezeDict({'operation': 'ADD'})): OpType(name='+', op_type="binary"),
+  ('MATH', freezeDict({'operation': 'SUB'})): OpType(name='-', op_type="binary"),
+  ('MATH', freezeDict({'operation': 'ATAN2'})): OpType(name='atan2', op_type="function"),
+  ('MATH', freezeDict({'operation': 'SIN'})): OpType(name='sin', op_type="function"),
 }
 
 def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] = None) -> ast.Node:
@@ -54,7 +56,7 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
 
   tree = material.node_tree
 
-  @dataclass
+  @dataclass(slots=True, frozen=True)
   class InputNode:
     node: bpy.types.Node
     source_socket: bpy.types.NodeSocketShader
@@ -107,7 +109,9 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
 
     return ast.VarRef(decl.name, [subfield] if subfield else [])
 
-  # FIXME: so apparently you can have separate outputs for eevee/cycles, need to handle that somehow...
+  # FIXME: I just need to find all nodes with no outputs and run on them
+  # that's actually better considering there are orphan nodes in real graphs that must be kept for parity
+  # Not to mention that the orphan node's placement is important for figuring out what it's meant to replace...
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   get_code_for_input(material_out)
 

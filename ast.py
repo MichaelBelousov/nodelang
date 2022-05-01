@@ -6,13 +6,15 @@ from abc import ABC
 from dataclasses import dataclass
 import typing
 from typing import Dict, List, Literal, Optional, Union
-from __future__ import annotations
 
+
+# FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
+primitive_types_raw = []
+
+PrimitiveType = Literal['f32', 'i32', 'u32']
 
 # TODO: move types out of ast
-primitive_types: List[PrimitiveType] = ['f32', 'i32', 'u32']
-
-PrimitiveType = type(primitive_types)
+primitive_types = ['f32', 'i32', 'u32']
 
 class Struct:
   """A datatype"""
@@ -36,9 +38,7 @@ def serializeLiteral(literal: Literal) -> str:
   return str(literal)
 
 class Node(ABC):
-  """A node of the Ast"""
-  pass
-
+  """A node in the Ast"""
   def serialize(self) -> str:
     raise NotImplementedError()
 
