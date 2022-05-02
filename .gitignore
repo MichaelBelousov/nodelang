@@ -1,6 +1,7 @@
 # python
 __pycache__
 .venv
+*.pyc
 
 # blender
 *.blend[0-9]

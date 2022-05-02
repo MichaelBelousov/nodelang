@@ -4,19 +4,24 @@ blender addon for seamlessly integrating nodelang into your material workflow
 hopefully...
 """
 
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-from __future__ import annotations
 import bpy
 from collections import defaultdict
 from . import ast
 from .util import freezeDict, FrozenDict
 
-blender_type_to_primitive = {
+BlenderNodeType = Literal[
+  "CUSTOM",
+  "OUTPUT_MATERIAL",
+]
+
+blender_type_to_primitive: Dict[BlenderNodeType, ast.Type] = {
   'CUSTOM': '',
   'VALUE': 'f32',
   'INT': 'i32',
-  'BOOLEAN': 'b1',
+  'BOOLEAN': 'b8',
   'VECTOR': 'f32[3]',
   'STRING': 'str',
   'RGBA': 'f32[4]',
@@ -24,11 +29,6 @@ blender_type_to_primitive = {
   'IMAGE': 'f32[4]',
   'GEOMETRY': 'f32',
 }
-
-BlenderNodeType = Literal[
-  "CUSTOM",
-  "OUTPUT_MATERIAL",
-]
 
 # TODO: move to code/data/types module
 @dataclass
@@ -91,11 +91,11 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
     if maybe_already_visited is not None: return maybe_already_visited
 
     ## handle primitives
-    # TODO: use a mapping for this
+    # TODO: use a mapping for all node types
     if node.type == "VALUE":
       node_to_code[node.name] = node.value
 
-    ## handle compounds
+    ## handle compounds (currently a vardecl is created for every non-trivial node... this will be removed)
 
     # create decl
     # TODO: assert there is not more than 1 input link
@@ -115,8 +115,8 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   get_code_for_input(material_out)
 
-material_nodes_to_ast(bpy.data.materials["Test"])
+out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
+
+print(out_ast.serialize())
 
 functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']
-
-# TODO: add an __init__.py probably with a share common module

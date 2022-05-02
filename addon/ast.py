@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import typing
 from typing import Dict, List, Literal, Optional, Union
 
-
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
 primitive_types_raw = []
 
@@ -22,12 +21,12 @@ class Struct:
 
 Type = Union[PrimitiveType, Struct]
 
-primitive_literal_types = [str, int, float]
+primitive_literal_types = [str, int, float, bool]
 # python 3.11 required to unpack in a subscript
-ArrayLiteral = List[str, int, float]
+ArrayLiteral = Union[List[str], List[int], List[float], List[bool]]
 literal_types = [*primitive_literal_types, ArrayLiteral]
 # ditto
-Literal = Union[str, int, float, ArrayLiteral]
+Literal = Union[str, int, float, bool, ArrayLiteral]
 
 def isLiteral(val):
   return any(isinstance(val, T) for T in literal_types)
