@@ -5,7 +5,8 @@ Ast of nodelang for use in blender (and prototype)
 from abc import ABC
 from dataclasses import dataclass, field, InitVar
 import typing
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, ClassVar
+import re
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
 primitive_types_raw = []
@@ -24,11 +25,12 @@ class Node(ABC):
 @dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
+  quotes_not_needed_pattern: ClassVar[re.Pattern] = re.compile(r'[a-zA-Z]\w*')
   def serialize(self):
-    # TODO: escape other characters
-    if ' ' in self.name: return f"'{self.name}'"
-    elif isinstance(self.name, str): return self.name
-    else: raise Exception("unexpected type")
+    # TODO: escape quotes and space and nonprintables
+    quotes_not_needed = Ident.quotes_not_needed_pattern.fullmatch(self.name) is not None
+    if quotes_not_needed: return self.name
+    else: return f"'{self.name}'"
 
 @dataclass
 class _Named:
