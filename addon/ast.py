@@ -3,7 +3,7 @@ Ast of nodelang for use in blender (and prototype)
 """
 
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import typing
 from typing import Dict, List, Literal, Optional, Union
 
@@ -75,9 +75,9 @@ class BinOp(Node):
 @dataclass
 class ConstDecl(Node):
   name: str
+  value: Union[Literal, VarRef]
   comment: Optional[str]
   type: Optional[Type]
-  value: Union[Literal, VarRef]
 
   def serialize(self):
     return (
@@ -95,8 +95,8 @@ class StructAssignment(Node):
 
 @dataclass
 class Namespace(Node):
-  decls: List[Node]
-  decl_by_name: Dict[str, Node]
+  decls: List[Node] = []
+  decl_by_name: Dict[str, Node] = {}
 
   def append_decl(self, decl: ConstDecl) -> None:
     self.decls.append(decl)
