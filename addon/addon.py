@@ -85,9 +85,9 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
     inputs = [try_get_input(i) for i in node.inputs]
     args = [get_code_for_input(*i) for i in inputs if i]
     # TODO: use generic node type map here
-    compound = ast.Call(name=node.name, args=args)
+    compound = ast.Call(name=ast.Ident(node.name), args=args)
     # TODO: consolidate with ast.StructAssignment
-    decl = ast.ConstDecl(name=node.name, comment=node.label, type=type, value=compound)
+    decl = ast.ConstDecl(name=ast.Ident(node.name), comment=node.label, type=type, value=compound)
     root.prepend_decl(decl)
     node_to_code[node] = decl
 

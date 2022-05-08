@@ -3,7 +3,7 @@ Ast of nodelang for use in blender (and prototype)
 """
 
 from abc import ABC
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 import typing
 from typing import Dict, List, Literal, Optional, Union
 
@@ -15,9 +15,31 @@ PrimitiveType = Literal['f32', 'i32', 'u32']
 # TODO: move types out of ast
 primitive_types = ['f32', 'i32', 'u32']
 
-class Struct:
-  """A datatype"""
-  members: List[Union[PrimitiveType, "Struct"]]
+class Node(ABC):
+  """A node in the Ast"""
+  def serialize(self) -> str:
+    raise NotImplementedError()
+
+# slots=True?
+@dataclass(unsafe_hash=True)
+class Ident(Node):
+  name: str
+  def serialize(self):
+    # TODO: escape other characters
+    if ' ' in self.name: return f"'{self.name}'"
+    else: return self.name
+
+@dataclass
+class Named:
+  name_arg: InitVar[Union[str, Ident]]
+  name: Ident = field(init=False)
+  def __post_init__(self, name_arg):
+    self.name = name_arg if isinstance(name_arg, Ident) else Ident(name_arg)
+
+@dataclass
+class Struct(Named):
+  """A compound datatype"""
+  members: List[Union[PrimitiveType, "Struct"]] = field(default_factory=[])
 
 Type = Union[PrimitiveType, Struct]
 
@@ -36,21 +58,15 @@ def serializeLiteral(literal: Literal) -> str:
     return f"[{', '.join(serializeLiteral(l) for l in literal)}]"
   return str(literal)
 
-class Node(ABC):
-  """A node in the Ast"""
-  def serialize(self) -> str:
-    raise NotImplementedError()
-
 @dataclass
-class VarRef(Node):
-  name: str
+class VarRef(Node, Named):
   derefs: List[str] # maybe convert this to binary dot operators
 
   def serialize(self):
     if not self.derefs:
-      return self.name
+      return self.name.serialize()
     else:
-      return f'{self.name}.{".".join(self.derefs)}'
+      return f'{self.name.serialize()}.{".".join(self.derefs)}'
 
 Expr = Union[Literal, VarRef]
 
@@ -72,18 +88,24 @@ class BinOp(Node):
   def serialize(self):
     return f'{self.name}({", ".join(self.args)})'
 
+
 @dataclass
 class ConstDecl(Node):
-  name: str
+  name: Ident
   value: Union[Literal, VarRef]
   comment: Optional[str]
   type: Optional[Type]
+  
+  def serialize_type(self) -> str:
+    if not self.type: return ''
+    elif isinstance(self.type, Struct): return self.type.name
+    else: return self.type
 
   def serialize(self):
     return (
       (f'/// {self.comment}' + '\n' if self.comment else '')
-      + f'const {self.name}'
-      + (f': {self.type}' if self.type else '')
+      + f'const {self.name.serialize()}'
+      + (f': {self.serialize_type()}' if self.type else '')
       + f' = {self.value.serialize()}'
     )
 
