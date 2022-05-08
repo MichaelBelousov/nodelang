@@ -8,41 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from . import ast
-from .util import freezeDict, FrozenDict
-from .types import BlenderNodeType, blender_type_to_primitive
-
-try:
-  in_blender = True
-  import bpy
-except ModuleNotFoundError:
-  # raise Exception("not running in blender")
-  # TODO: throw error when not testing
-  in_blender = False
-  class IgnoreDerefs:
-    def __getattr__(s,_): return s
-    def __getitem__(s,_): return s
-  bpy = IgnoreDerefs()
-
-
-# TODO: move to code/data/types module
-@dataclass
-class OpType():
-  """A primitive operation (operator or function) in the context"""
-  name: str
-  op_type: Literal["binary", "unary", "function"]
-
-node_types: Dict[BlenderNodeType, OpType] = {
-  'CUSTOM': '',
-  'OUTPUT_MATERIAL': '',
-}
-
-# list of generic nodes in blender (e.g. Math) which we specialize
-generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], OpType] = {
-  ('MATH', freezeDict({'operation': 'ADD'})): OpType(name='+', op_type="binary"),
-  ('MATH', freezeDict({'operation': 'SUB'})): OpType(name='-', op_type="binary"),
-  ('MATH', freezeDict({'operation': 'ATAN2'})): OpType(name='atan2', op_type="function"),
-  ('MATH', freezeDict({'operation': 'SIN'})): OpType(name='sin', op_type="function"),
-}
+from .types import BlenderNodeType, blender_material_type_to_primitive
+from .bpy_wrap import bpy, in_blender
 
 
 def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.Module:
@@ -78,15 +45,15 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
       from_name=i.links[0].from_socket.name,
       from_type=i.links[0].from_socket.name,
       to_type=i.type,
-    ) if i.is_linked else None
+    # TODO: check defaults
+    ) if i.is_linked else i.default_value
 
-    # TODO: need to get the default for each input that isn't connected
     inputs = map(try_get_input, node.inputs)
     args = [get_code_for_input(i.node, i.from_name) for i in inputs if i]
     # TODO: use generic node type map here
     compound = ast.Call(name=ast.Ident(node.name), args=args)
 
-    type_ = blender_type_to_primitive(node.outputs[0].type) if node.outputs else None
+    type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None
 
     # TODO: consolidate with ast.StructAssignment
     decl = ast.ConstDecl(name=ast.Ident(node.name), comment=node.label, type=type_, value=compound)
