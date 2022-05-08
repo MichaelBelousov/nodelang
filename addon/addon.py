@@ -7,7 +7,6 @@ hopefully...
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-from collections import defaultdict
 from . import ast
 from .util import freezeDict, FrozenDict
 
@@ -61,48 +60,14 @@ generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], OpType] =
   ('MATH', freezeDict({'operation': 'SIN'})): OpType(name='sin', op_type="function"),
 }
 
-def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] = None) -> ast.Node:
-  module = ast.Module()
+
+def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.Module:
   root = module
 
-  tree = material.node_tree
-
-  @dataclass(slots=True, frozen=True)
-  class InputNode:
-    node: bpy.types.Node
-    source_socket: bpy.types.NodeSocketShader
-
-  # maybe any(not) could do this without counting all links
-  unlinked = lambda n: all(not o.links for o in n.outputs)
-  end_nodes = [n for n in tree.nodes if unlinked(n)]
-
-  # link to the nodes it comes from
-  link_sources: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
-  # link to the nodes it goes to
-  link_targets: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
-
-  # FIXME: looks like there is in fact a link.to_socket.node property so this entire thing is unnecessary
-  for n in tree.nodes:
-    for o in n.outputs:
-      link_sources[o].append(n)
-    for i in n.inputs:
-      link_targets[i].append(n)
-
-  # map of a node to its inputs
-  inputs_graph: Dict[bpy.types.Node, List[InputNode]] = defaultdict(list)
-
-  # find all nodes without outputs
-  for link in tree.links:
-    source, *otherSources = link_sources[link]
-    target, *otherTargets = link_targets[link]
-    assert len(otherSources) == 0, "links must have one source node"
-    assert len(otherTargets) == 0, "links must have one target node"
-    inputs_graph[target].append(InputNode(source, link.from_socket))
-
-  # maybe calling them nodes and codes is a good idea
+  # maybe calling them nodes and codes is an interesting idea
   node_to_code: Dict[bpy.types.Node, Any] = {}
 
-  def get_code_for_input(node: bpy.types.Node) -> Union[ast.VarRef, ast.Literal]:
+  def get_code_for_input(node: bpy.types.Node, subfield: Optional[str] = None) -> Union[ast.VarRef, ast.Literal]:
     maybe_already_visited = node_to_code.get(node)
     if maybe_already_visited is not None: return maybe_already_visited
 
@@ -113,9 +78,12 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
 
     ## handle compounds (currently a vardecl is created for every non-trivial node... this will be removed)
 
-    # create decl
+    # create decmporl
     # TODO: assert there is not more than 1 input link
-    args = [get_code_for_input(i.node, i.link[0].from_socket.name) if i.is_linked else i for i in node.inputs]
+    try_get_input = lambda i: (i.links[0].from_socket.node, i.links[0].from_socket.name) if i.is_linked else None
+    # TODO: need to get the default for each input that isn't connected
+    inputs = [try_get_input(i) for i in node.inputs]
+    args = [get_code_for_input(*i) for i in inputs if i]
     # TODO: use generic node type map here
     compound = ast.Call(name=node.name, args=args)
     # TODO: consolidate with ast.StructAssignment
@@ -125,14 +93,21 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
 
     return ast.VarRef(decl.name, [subfield] if subfield else [])
 
-  # FIXME: I just need to find all nodes with no outputs and run on them
-  # that's actually better considering there are orphan nodes in real graphs that must be kept for parity
-  # Not to mention that the orphan node's placement is important for figuring out what it's meant to replace...
-  material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
-  get_code_for_input(material_out)
+  get_code_for_input(output_node)
+
+
+def analyze_material(material: bpy.types.Material) -> ast.Module:
+  module = ast.Module()
+  tree = material.node_tree
+  is_unlinked = lambda n: all(not o.links for o in n.outputs)
+  end_nodes = [n for n in tree.nodes if is_unlinked(n)]
+  for end_node in end_nodes:
+    analyze_output_node(module, end_node)
+  return module
+
 
 if in_blender:
-  out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
+  out_ast = analyze_material(bpy.data.materials["Test"])
   print(out_ast.serialize())
 
 # functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']

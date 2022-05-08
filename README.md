@@ -95,6 +95,8 @@ fn main(ctx: Context) Result {
 
 ## Development
 
+### blender bpy analysis in VSCode
+
 First, find the path of the modules folder for your blender install. You can find it by running
 this python in Blender's python console
 
