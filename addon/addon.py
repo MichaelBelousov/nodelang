@@ -7,10 +7,18 @@ hopefully...
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-import bpy
 from collections import defaultdict
 from . import ast
 from .util import freezeDict, FrozenDict
+
+try:
+  import bpy
+except ModuleNotFoundError:
+  # raise Exception("not running in blender")
+  # TODO: throw error when not testing
+  class IgnoreDerefs:
+    def __getattr__(s,_): return s
+  bpy = IgnoreDerefs()
 
 BlenderNodeType = Literal[
   "CUSTOM",
@@ -115,8 +123,6 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   get_code_for_input(material_out)
 
-out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
-
-print(out_ast.serialize())
-
-functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']
+# out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
+# print(out_ast.serialize())
+# functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']

@@ -95,8 +95,8 @@ class StructAssignment(Node):
 
 @dataclass
 class Namespace(Node):
-  decls: List[Node] = []
-  decl_by_name: Dict[str, Node] = {}
+  decls: List[Node] = field(default_factory=list)
+  decl_by_name: Dict[str, Node] = field(default_factory=dict)
 
   def append_decl(self, decl: ConstDecl) -> None:
     self.decls.append(decl)
