@@ -12,12 +12,15 @@ from . import ast
 from .util import freezeDict, FrozenDict
 
 try:
+  in_blender = True
   import bpy
 except ModuleNotFoundError:
   # raise Exception("not running in blender")
   # TODO: throw error when not testing
+  in_blender = False
   class IgnoreDerefs:
     def __getattr__(s,_): return s
+    def __getitem__(s,_): return s
   bpy = IgnoreDerefs()
 
 BlenderNodeType = Literal[
@@ -69,6 +72,10 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
     node: bpy.types.Node
     source_socket: bpy.types.NodeSocketShader
 
+  # maybe any(not) could do this without counting all links
+  unlinked = lambda n: all(not o.links for o in n.outputs)
+  end_nodes = [n for n in tree.nodes if unlinked(n)]
+
   # link to the nodes it comes from
   link_sources: defaultdict[bpy.types.NodeLink, List[bpy.types.Node]] = defaultdict(list)
   # link to the nodes it goes to
@@ -84,6 +91,7 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
   # map of a node to its inputs
   inputs_graph: Dict[bpy.types.Node, List[InputNode]] = defaultdict(list)
 
+  # find all nodes without outputs
   for link in tree.links:
     source, *otherSources = link_sources[link]
     target, *otherTargets = link_targets[link]
@@ -123,6 +131,8 @@ def material_nodes_to_ast(material: bpy.types.Material, subfield: Optional[str] 
   material_out = next(n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL')
   get_code_for_input(material_out)
 
-# out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
-# print(out_ast.serialize())
+if in_blender:
+  out_ast = material_nodes_to_ast(bpy.data.materials["Test"])
+  print(out_ast.serialize())
+
 # functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']
