@@ -27,14 +27,16 @@ class Ident(Node):
   def serialize(self):
     # TODO: escape other characters
     if ' ' in self.name: return f"'{self.name}'"
-    else: return self.name
+    elif isinstance(self.name, str): return self.name
+    else: raise Exception("unexpected type")
 
 @dataclass
-class Named:
-  name_arg: InitVar[Union[str, Ident]]
-  name: Ident = field(init=False)
-  def __post_init__(self, name_arg):
-    self.name = name_arg if isinstance(name_arg, Ident) else Ident(name_arg)
+class _Named:
+  name: Ident
+
+class Named(_Named):
+  def __init__(self, name: Union[str, Ident]):
+    super().__init__(name if isinstance(name, Ident) else Ident(name))
 
 @dataclass
 class Struct(Named):
@@ -60,7 +62,7 @@ def serializeLiteral(literal: Literal) -> str:
 
 @dataclass
 class VarRef(Node, Named):
-  derefs: List[str] # maybe convert this to binary dot operators
+  derefs: List[str] = field(default_factory=list) # maybe convert this to binary dot operators
 
   def serialize(self):
     if not self.derefs:
@@ -71,12 +73,11 @@ class VarRef(Node, Named):
 Expr = Union[Literal, VarRef]
 
 @dataclass
-class Call(Node):
-  name: str
+class Call(Node, Named):
   args: List[Expr]
 
   def serialize(self):
-    return f'{self.name}({", ".join(a.serialize() for a in self.args)})'
+    return f'{self.name.serialize()}({", ".join(a.serialize() for a in self.args)})'
 
 @dataclass
 class BinOp(Node):
