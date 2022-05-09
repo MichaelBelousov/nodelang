@@ -62,7 +62,6 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
     inputs = [get_input(i) for i in node.inputs if i.enabled]
     # TODO: this could be cleaned up
     args = [get_code_for_input(i.node, i.from_name) if isinstance(i, Input) else i for i in inputs]
-    print(args)
     compound = blender_material_node_to_operation(node)(args)
 
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None

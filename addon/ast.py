@@ -57,8 +57,8 @@ class Literal(Node):
   val: Union[str, int, float, bool, None, ArrayLiteral]
 
   def serialize(self) -> str:
-    if isinstance(self, list):
-      return f"[{', '.join(l.serialize() for l in self)}]"
+    if isinstance(self.val, list):
+      return f"[{', '.join(l.serialize() for l in self.val)}]"
     return str(self.val)
 
   @staticmethod
