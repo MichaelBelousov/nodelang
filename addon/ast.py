@@ -88,7 +88,14 @@ class Call(Node, Named):
   args: List[Node]
 
   def serialize(self):
-    return f'{self.name.serialize()}({", ".join(a.serialize() for a in self.args)})'
+    arg_per_line = len(self.args) > 4
+    nl = '\n'
+    indent = '  ' # TODO: do real tree formatting
+    return f'''{self.name.serialize()}({
+      nl+indent if arg_per_line else ''
+    }{(','+nl+indent if arg_per_line else ', ').join(a.serialize() for a in self.args)}{
+      nl if arg_per_line else ''
+    })'''
 
 @dataclass
 class BinOp(Node):

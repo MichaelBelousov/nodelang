@@ -56,7 +56,8 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
       from_name=i.links[0].from_socket.name,
       from_type=i.links[0].from_socket.name,
       to_type=i.type,
-    # TODO: check defaults
+    # TODO: defaults should probably not be listed for most operations, in favor of requiring some kind of named arguments
+    # e.g. binary operators require default args but functions require named args like `principled_shader(translucency=0.56)`
     ) if i.is_linked else get_default_value(i)
 
     inputs = [get_input(i) for i in node.inputs if i.enabled]
@@ -85,9 +86,14 @@ def analyze_material(material: bpy.types.Material) -> ast.Module:
     analyze_output_node(module, end_node)
   return module
 
+# TEMP: for prettier output in tests
+ansi_color_yellow = "\033[0;33m"
+ansi_color_white = "\033[0;37m"
 
 if in_blender:
   out_ast = analyze_material(bpy.data.materials["Test"])
+  print(ansi_color_yellow)
   print(out_ast.serialize())
+  print(ansi_color_white)
 
 # functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']
