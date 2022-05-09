@@ -3,9 +3,9 @@ Ast of nodelang for use in blender (and prototype)
 """
 
 from abc import ABC
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass, field
 import typing
-from typing import Dict, List, Literal, Optional, Union, ClassVar
+from typing import Any, Dict, List, Literal, Optional, Union, ClassVar
 import re
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
@@ -47,20 +47,28 @@ class Struct(Named):
 
 Type = Union[PrimitiveType, Struct]
 
-primitive_literal_types = [str, int, float, bool]
+primitive_literal_types = [str, int, float, bool, None]
 # python 3.11 required to unpack in a subscript
 ArrayLiteral = Union[List[str], List[int], List[float], List[bool]]
 literal_types = [*primitive_literal_types, ArrayLiteral]
-# ditto
-Literal = Union[str, int, float, bool, ArrayLiteral]
 
-def isLiteral(val):
-  return any(isinstance(val, T) for T in literal_types)
+@dataclass
+class Literal(Node):
+  val: Union[str, int, float, bool, None, ArrayLiteral]
 
-def serializeLiteral(literal: Literal) -> str:
-  if isinstance(literal, list):
-    return f"[{', '.join(serializeLiteral(l) for l in literal)}]"
-  return str(literal)
+  def serialize(self) -> str:
+    if isinstance(self, list):
+      return f"[{', '.join(l.serialize() for l in self)}]"
+    return str(self.val)
+
+  @staticmethod
+  def from_value(val: Any) -> Literal:
+    # including None for now since not yet sure how to represent an empty optional shader
+    if isinstance(val, (str, float, int, bool, list, type(None))):
+      if isinstance(val, list):
+        return Literal([Literal.from_value(subval) for subval in val])
+      return Literal(val)
+    raise RuntimeError(f"unknown value '{val}' with type '{type(val)}' attempted to be used as a literal")
 
 @dataclass
 class VarRef(Node, Named):
@@ -72,24 +80,25 @@ class VarRef(Node, Named):
     else:
       return f'{self.name.serialize()}.{".".join(self.derefs)}'
 
+# need this?
 Expr = Union[Literal, VarRef]
 
 @dataclass
 class Call(Node, Named):
-  args: List[Expr]
+  args: List[Node]
 
   def serialize(self):
     return f'{self.name.serialize()}({", ".join(a.serialize() for a in self.args)})'
 
 @dataclass
 class BinOp(Node):
-  name: str
-  left: Expr
-  right: Expr
-  op: typing.Literal["+", "-"]
+  op: typing.Literal['+', '-', '*', '/', '^', '^^', '^/', '**', '&', '|', '&&', '||']
+  left: Node
+  right: Node
 
+  # TODO: this probably needs some serialization context in order to pretty print the op tree
   def serialize(self):
-    return f'{self.name}({", ".join(self.args)})'
+    return f'({self.left.serialize()} {self.op} {self.right.serialize()})'
 
 
 @dataclass

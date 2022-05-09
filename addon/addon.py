@@ -7,8 +7,10 @@ hopefully...
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+
+from addon.blender_util import isinstance_bpy_prop_array
 from . import ast
-from .types import BlenderNodeType, blender_material_type_to_primitive
+from .types import BlenderNodeType, blender_material_node_to_operation, blender_material_type_to_primitive
 from .bpy_wrap import bpy, in_blender
 
 
@@ -37,21 +39,31 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
       from_type: str # TODO: make this an enum
       to_type: str
 
-    # create decmporl
+    # TODO: move to some module for dealing with blender nodes
+    def get_default_value(i: bpy.types.NodeSocket) -> Any:
+      if hasattr(i, 'default_value'):
+        if isinstance_bpy_prop_array(i.default_value):
+          return ast.Literal.from_value(list(i.default_value))
+        return ast.Literal.from_value(i.default_value)
+      return ast.Literal.from_value(None)
+
+    # TODO: might need to check properties of node against its base class to see if any extra properties are acting as dropdowns...
+    # or just figure out how to get the dropdown properties
     # TODO: assert there is not more than 1 input link
-    try_get_input = lambda i: Input(
+    get_input = lambda i: Input(
       node=i.links[0].from_socket.node,
       # TODO: analyze cast if the types aren't the same
       from_name=i.links[0].from_socket.name,
       from_type=i.links[0].from_socket.name,
       to_type=i.type,
     # TODO: check defaults
-    ) if i.is_linked else i.default_value
+    ) if i.is_linked else get_default_value(i)
 
-    inputs = map(try_get_input, node.inputs)
-    args = [get_code_for_input(i.node, i.from_name) for i in inputs if i]
-    # TODO: use generic node type map here
-    compound = ast.Call(name=ast.Ident(node.name), args=args)
+    inputs = [get_input(i) for i in node.inputs if i.enabled]
+    # TODO: this could be cleaned up
+    args = [get_code_for_input(i.node, i.from_name) if isinstance(i, Input) else i for i in inputs]
+    print(args)
+    compound = blender_material_node_to_operation(node)(args)
 
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None
 
