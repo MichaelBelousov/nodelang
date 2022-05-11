@@ -6,11 +6,11 @@ hopefully...
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from addon.blender_util import isinstance_bpy_prop_array
 from . import ast
-from .types import BlenderNodeType, blender_material_node_to_operation, blender_material_type_to_primitive
+from .types import blender_material_node_to_operation, blender_material_type_to_primitive
 from .bpy_wrap import bpy, in_blender
 
 
@@ -75,6 +75,8 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
     return ast.VarRef(decl.name, [subfield] if subfield else [])
 
   get_code_for_input(output_node)
+
+  return module
 
 
 def analyze_material(material: bpy.types.Material) -> ast.Module:

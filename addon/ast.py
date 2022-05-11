@@ -11,7 +11,7 @@ import re
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
 primitive_types_raw = []
 
-PrimitiveType = Literal['f32', 'i32', 'u32']
+PrimitiveType = Literal['f32', 'i32', 'u32', 'b8', 'bsdf']
 
 # TODO: move types out of ast
 primitive_types = ['f32', 'i32', 'u32']
@@ -25,7 +25,7 @@ class Node(ABC):
 @dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
-  quotes_not_needed_pattern: ClassVar[re.Pattern] = re.compile(r'[a-zA-Z]\w*')
+  quotes_not_needed_pattern: ClassVar[re.Pattern[str]] = re.compile(r'[a-zA-Z]\w*')
   def serialize(self):
     # TODO: escape quotes and space and nonprintables
     quotes_not_needed = Ident.quotes_not_needed_pattern.fullmatch(self.name) is not None

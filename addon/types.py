@@ -1,13 +1,21 @@
 
-from typing import Any, List, Literal, Dict, Tuple
+from typing import Any, Callable, List, Literal, Dict, Tuple
 from dataclasses import dataclass
 from . import ast
 from .util import FrozenDict, freezeDict
 from .bpy_wrap import bpy
 
 BlenderNodeType = Literal[
-  "CUSTOM",
-  "OUTPUT_MATERIAL",
+  'CUSTOM',
+  'VALUE',
+  'INT',
+  'BOOLEAN',
+  'VECTOR',
+  'STRING',
+  'RGBA',
+  'SHADER',
+  'IMAGE',
+  'GEOMETRY'
 ]
 
 _blender_material_type_to_primitive_map: Dict[BlenderNodeType, ast.Type] = {
@@ -18,7 +26,7 @@ _blender_material_type_to_primitive_map: Dict[BlenderNodeType, ast.Type] = {
   'VECTOR': 'f32[3]',
   'STRING': 'str',
   'RGBA': 'f32[4]',
-  'SHADER': 'shader',
+  'SHADER': 'bsdf', # not actually accurate, there are more shader types than just bsdf
   'IMAGE': 'f32[4]',
   'GEOMETRY': 'f32',
 }
@@ -32,14 +40,8 @@ class OpType():
   name: str
   op_type: Literal["binary", "unary", "function"]
 
-# TODO: remove
-node_types: Dict[BlenderNodeType, OpType] = {
-  'CUSTOM': '',
-  'OUTPUT_MATERIAL': '',
-}
-
 # blender nodes with arguments to their specialized operation
-generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], 'Function[ast.Node, List[ast.Node]]'] = {
+generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], Callable[[ast.Node], ast.Node]] = {
   ('BSDF_PRINCIPLED', freezeDict({})):          lambda args: ast.Call(ast.Ident('pbr_shader'), args),
   ('MATH', freezeDict({'operation': 'ADD'})):   lambda args: ast.BinOp('+', *args),
   ('MATH', freezeDict({'operation': 'SUB'})):   lambda args: ast.BinOp('-', *args),

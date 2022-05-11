@@ -1,15 +1,14 @@
-from typing import Dict, Generic, Tuple, TypeVar
+from typing import Dict, Sequence, Tuple, TypeVar
 
 K = TypeVar('K')
 V = TypeVar('V')
 
-class FrozenDict(Generic[K, V]):
-  pass
+FrozenDict = Sequence[Tuple[K, V]]
 
 # TODO: switch to using frozenset or the frozendict pypi package
-def freezeDict(dict: Dict) -> FrozenDict:
-  return tuple(map(tuple, dict.items()))
+def freezeDict(dict: Dict[K, V]) -> FrozenDict[K, V]:
+  return tuple((k,v) for k,v in dict.items())
 
 class IgnoreDerefs:
-  def __getattr__(s,_): return s
-  def __getitem__(s,_): return s
+  def __getattr__(self,_): return self
+  def __getitem__(self,_): return self
