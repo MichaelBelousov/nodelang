@@ -5,7 +5,7 @@ Ast of nodelang for use in blender (and prototype)
 from abc import ABC
 from dataclasses import dataclass, field
 import typing
-from typing import Any, Dict, List, Literal, Optional, Union, ClassVar
+from typing import Any, Dict, List, Literal, Optional, ClassVar
 import re
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
@@ -37,24 +37,24 @@ class _Named:
   name: Ident
 
 class Named(_Named):
-  def __init__(self, name: Union[str, Ident]):
+  def __init__(self, name: str | Ident):
     super().__init__(name if isinstance(name, Ident) else Ident(name))
 
 @dataclass
 class Struct(Named):
   """A compound datatype"""
-  members: List[Union[PrimitiveType, "Struct"]] = field(default_factory=[])
+  members: List[PrimitiveType | "Struct"] = field(default_factory=list)
 
-Type = Union[PrimitiveType, Struct]
+Type = PrimitiveType | Struct
 
 primitive_literal_types = [str, int, float, bool, None]
 # python 3.11 required to unpack in a subscript
-ArrayLiteral = Union[List[str], List[int], List[float], List[bool]]
+ArrayLiteral = List[str] | List[int] | List[float] | List[bool]
 literal_types = [*primitive_literal_types, ArrayLiteral]
 
 @dataclass
 class Literal(Node):
-  val: Union[str, int, float, bool, None, ArrayLiteral]
+  val: str | int | float | bool | None | ArrayLiteral
 
   def serialize(self) -> str:
     if isinstance(self.val, list):
@@ -81,7 +81,7 @@ class VarRef(Node, Named):
       return f'{self.name.serialize()}.{".".join(self.derefs)}'
 
 # need this?
-Expr = Union[Literal, VarRef]
+Expr = Literal | VarRef
 
 @dataclass
 class Call(Node, Named):
@@ -111,13 +111,13 @@ class BinOp(Node):
 @dataclass
 class ConstDecl(Node):
   name: Ident
-  value: Union[Literal, VarRef]
+  value: Literal | VarRef
   comment: Optional[str]
   type: Optional[Type]
   
   def serialize_type(self) -> str:
     if not self.type: return ''
-    elif isinstance(self.type, Struct): return self.type.name
+    elif isinstance(self.type, Struct): return self.type.name.serialize()
     else: return self.type
 
   def serialize(self):

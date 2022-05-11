@@ -43,7 +43,7 @@ generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], 'Function
   ('BSDF_PRINCIPLED', freezeDict({})):          lambda args: ast.Call(ast.Ident('pbr_shader'), args),
   ('MATH', freezeDict({'operation': 'ADD'})):   lambda args: ast.BinOp('+', *args),
   ('MATH', freezeDict({'operation': 'SUB'})):   lambda args: ast.BinOp('-', *args),
-  ('MATH', freezeDict({'operation': 'MUL'})):   lambda args: ast.BinOp('*', *args),
+  ('MATH', freezeDict({'operation': 'MULTIPLY'})):   lambda args: ast.BinOp('*', *args),
   ('MATH', freezeDict({'operation': 'DIV'})):   lambda args: ast.BinOp('/', *args),
   ('MATH', freezeDict({'operation': 'ATAN2'})): lambda args: ast.Call(ast.Ident('atan2'), args),
   ('MATH', freezeDict({'operation': 'SIN'})):   lambda args: ast.Call(ast.Ident('sin'), args),

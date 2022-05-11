@@ -6,7 +6,7 @@ hopefully...
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from addon.blender_util import isinstance_bpy_prop_array
 from . import ast
@@ -20,7 +20,7 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.
   # maybe calling them nodes and codes is an interesting idea
   node_to_code: Dict[bpy.types.Node, Any] = {}
 
-  def get_code_for_input(node: bpy.types.Node, subfield: Optional[str] = None) -> Union[ast.VarRef, ast.Literal]:
+  def get_code_for_input(node: bpy.types.Node, subfield: Optional[str] = None) -> ast.VarRef | ast.Literal:
     maybe_already_visited = node_to_code.get(node)
     if maybe_already_visited is not None: return maybe_already_visited
 
