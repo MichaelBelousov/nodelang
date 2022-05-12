@@ -10,6 +10,8 @@ try:
   import bpy
   # FIXME: need to add a stub file to use bpy.types instead of this directly
   import bpy_types
+  # TODO: checkout the PyPI blender-stubs module for this...
+  # TODO: use pipenv
 
 except ModuleNotFoundError:
   # raise Exception("not running in blender")

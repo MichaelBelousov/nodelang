@@ -14,23 +14,23 @@ from .types import blender_material_node_to_operation, blender_material_type_to_
 from .bpy_wrap import bpy, in_blender
 
 
-def analyze_output_node(module: ast.Module, output_node: bpy.types.Node) -> ast.Module:
+def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -> ast.Module:
   root = module
 
   # maybe calling them nodes and codes is an interesting idea
-  node_to_code: Dict[bpy.types.Node, Any] = {}
+  node_to_code: Dict[bpy.types.ShaderNode, Any] = {}
 
-  def get_code_for_input(node: bpy.types.Node, subfield: Optional[str] = None) -> ast.VarRef | ast.Literal:
+  def get_code_for_input(node: bpy.types.ShaderNode, subfield: Optional[str] = None) -> ast.VarRef | ast.Literal:
     maybe_already_visited = node_to_code.get(node)
     if maybe_already_visited is not None: return maybe_already_visited
 
     ## handle primitives
     # TODO: use a mapping for all node types
-    if node.type == "VALUE":
-      node_to_code[node.name] = node.value
+    if isinstance(node, bpy.types.ShaderNodeValue):
+      node_to_code[node] = node.color
 
     ## handle compounds (currently a vardecl is created for every non-trivial node... this will be removed)
-
+    # TODO: use pyenv to force python version to match that in blender
     @dataclass(slots=True)
     class Input:
       # the node which this input comes from

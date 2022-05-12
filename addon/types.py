@@ -15,7 +15,14 @@ BlenderNodeType = Literal[
   'RGBA',
   'SHADER',
   'IMAGE',
-  'GEOMETRY'
+  'GEOMETRY',
+]
+
+# TODO: use class(Enum) pattern
+BlenderNodeTypeEnum = Literal[
+  'MATH',
+  'BSDF_PRINCIPLED',
+  'OUTPUT_MATERIAL',
 ]
 
 _blender_material_type_to_primitive_map: Dict[BlenderNodeType, ast.Type] = {
@@ -41,7 +48,7 @@ class OpType():
   op_type: Literal["binary", "unary", "function"]
 
 # blender nodes with arguments to their specialized operation
-generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], Callable[[ast.Node], ast.Node]] = {
+generic_node_types: Dict[Tuple[BlenderNodeTypeEnum, FrozenDict[str, Any]], Callable[[List[ast.Node]], ast.Node]] = {
   ('BSDF_PRINCIPLED', freezeDict({})):          lambda args: ast.Call(ast.Ident('pbr_shader'), args),
   ('MATH', freezeDict({'operation': 'ADD'})):   lambda args: ast.BinOp('+', *args),
   ('MATH', freezeDict({'operation': 'SUB'})):   lambda args: ast.BinOp('-', *args),
@@ -53,7 +60,7 @@ generic_node_types: Dict[Tuple[BlenderNodeType, FrozenDict[str, Any]], Callable[
   ('OUTPUT_MATERIAL', freezeDict({})):          lambda args: ast.Call(ast.Ident('output'), args),
 }
 
-def blender_material_node_to_operation(node: bpy.types.Node) -> 'Function[ast.Node, List[ast.Node]]':
+def blender_material_node_to_operation(node: bpy.types.ShaderNodeMath) -> Callable[[List[ast.Node]], ast.Node]:
   # linear search for now, probably better to do more efficient subset equality
   for (blender_node_type, required_props), op_maker in generic_node_types.items():
     if blender_node_type == node.type and all(getattr(node, k, object()) == v for k,v in required_props):
