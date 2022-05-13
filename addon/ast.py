@@ -5,13 +5,13 @@ Ast of nodelang for use in blender (and prototype)
 from abc import ABC
 from dataclasses import dataclass, field
 import typing
-from typing import Any, Dict, List, Literal, Optional, ClassVar
+from typing import Dict, List, Optional, ClassVar
 import re
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
 primitive_types_raw = []
 
-PrimitiveType = Literal['f32', 'i32', 'u32', 'b8', 'bsdf']
+PrimitiveType = typing.Literal['f32', 'i32', 'u32', 'b8', 'bsdf']
 
 # TODO: move types out of ast
 primitive_types = ['f32', 'i32', 'u32']
@@ -21,8 +21,7 @@ class Node(ABC):
   def serialize(self) -> str:
     raise NotImplementedError()
 
-# slots=True?
-@dataclass(unsafe_hash=True)
+@dataclass(unsafe_hash=True, slots=True)
 class Ident(Node):
   name: str
   quotes_not_needed_pattern: ClassVar[re.Pattern[str]] = re.compile(r'[a-zA-Z]\w*')
@@ -47,28 +46,23 @@ class Struct(Named):
 
 Type = PrimitiveType | Struct
 
-primitive_literal_types = [str, int, float, bool, None]
-# python 3.11 required to unpack in a subscript
-ArrayLiteral = List[str] | List[int] | List[float] | List[bool]
-literal_types = [*primitive_literal_types, ArrayLiteral]
+# including None for now since not yet sure how to represent an empty optional shader
+PrimitiveValue = str | int | float | bool | None | List["PrimitiveValue"]
 
 @dataclass
 class Literal(Node):
-  val: str | int | float | bool | None | ArrayLiteral
+  val: PrimitiveValue
 
   def serialize(self) -> str:
     if isinstance(self.val, list):
-      return f"[{', '.join(l.serialize() for l in self.val)}]"
+      return f"[{', '.join(Literal.from_value(l).serialize() for l in self.val)}]"
     return str(self.val)
 
   @staticmethod
-  def from_value(val: Any) -> Literal:
-    # including None for now since not yet sure how to represent an empty optional shader
-    if isinstance(val, (str, float, int, bool, list, type(None))):
-      if isinstance(val, list):
-        return Literal([Literal.from_value(subval) for subval in val])
-      return Literal(val)
-    raise RuntimeError(f"unknown value '{val}' with type '{type(val)}' attempted to be used as a literal")
+  def from_value(val: PrimitiveValue) -> "Literal":
+    if not isinstance(val, (str, float, int, bool, list, type(None))):
+      raise RuntimeError(f"unknown value '{val}' with type '{type(val)}' attempted to be used as a literal")
+    return Literal(val)
 
 @dataclass
 class VarRef(Node, Named):
@@ -137,7 +131,7 @@ class StructAssignment(Node):
 @dataclass
 class Namespace(Node):
   decls: List[Node] = field(default_factory=list)
-  decl_by_name: Dict[str, Node] = field(default_factory=dict)
+  decl_by_name: Dict[Ident, Node] = field(default_factory=dict)
 
   def append_decl(self, decl: ConstDecl) -> None:
     self.decls.append(decl)
