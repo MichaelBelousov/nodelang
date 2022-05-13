@@ -6,7 +6,7 @@ hopefully...
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from addon.blender_util import isinstance_bpy_prop_array
 from . import ast
@@ -41,7 +41,8 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -
 
     # TODO: move to some module for dealing with blender nodes
     def get_default_value(i: bpy.types.NodeSocket) -> Any:
-      if hasattr(i, 'default_value'):
+      # if hasattr(i, 'default_value'):
+      if isinstance(i, (bpy.types.NodeSocketFloat, bpy.types.NodeSocketBool, bpy.types.NodeSocketColor)):
         if isinstance_bpy_prop_array(i.default_value):
           return ast.Literal.from_value(list(i.default_value))
         return ast.Literal.from_value(i.default_value)
@@ -67,12 +68,15 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -
 
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None
 
-    # TODO: consolidate with ast.StructAssignment
-    decl = ast.ConstDecl(name=ast.Ident(node.name), comment=node.label, type=type_, value=compound)
-    root.prepend_decl(decl)
-    node_to_code[node] = decl
-
-    return ast.VarRef(decl.name, [subfield] if subfield else [])
+    if isinstance(node, bpy.types.ShaderNodeMath):
+      return compound
+      node_to_code[node] = decl
+    else:
+      # TODO: consolidate with ast.StructAssignment
+      decl = ast.ConstDecl(name=ast.Ident(node.name), comment=node.label, type=type_, value=compound)
+      root.append_decl(decl)
+      node_to_code[node] = decl
+      return ast.VarRef(decl.name, [subfield] if subfield else [])
 
   get_code_for_input(output_node)
 
@@ -82,10 +86,12 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -
 def analyze_material(material: bpy.types.Material) -> ast.Module:
   module = ast.Module()
   tree = material.node_tree
-  is_unlinked = lambda n: all(not o.links for o in n.outputs)
+  is_unlinked: Callable[[bpy.types.Node], bool] = lambda n: all(not o.links for o in n.outputs)
   end_nodes = [n for n in tree.nodes if is_unlinked(n)]
+
   for end_node in end_nodes:
     analyze_output_node(module, end_node)
+
   return module
 
 # TEMP: for prettier output in tests
