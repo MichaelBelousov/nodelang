@@ -3,7 +3,6 @@
 
 An almost completely unimplemented language for parity with node graphs, particularly targetting blender's material and geometry node graphs.
 
-
 ## ideas
 
 - immutable expressions can be out of order
