@@ -88,6 +88,7 @@ def analyze_output_node(node_to_code: ProcessedNodesCollection, output_node: bpy
       link: bpy.types.NodeLink
       from_name: str
       from_type: str # TODO: make this an enum
+      to_name: str
       to_type: str
 
     # TODO: move to some module for dealing with blender nodes
@@ -111,16 +112,15 @@ def analyze_output_node(node_to_code: ProcessedNodesCollection, output_node: bpy
           # TODO: analyze cast if the types aren't the same
           from_name=i.links[0].from_socket.name,
           from_type=i.links[0].from_socket.name,
+          to_name=i.links[0].to_socket.name,
           to_type=i.type,
         )
       else:
-        # TODO: defaults should probably not be listed for most operations, in favor of requiring some kind of named arguments
-        # e.g. binary operators require default args but functions require named args like `principled_shader(translucency=0.56)`
         return get_default_value(i)
 
     inputs = [get_input(i) for i in node.inputs if i.enabled]
     # TODO: this could be cleaned up
-    args = [get_code_for_input(i.node, {'node': node, 'link': i.link}) if isinstance(i, Input) else i for i in inputs]
+    args = [ast.NamedArg(ast.Ident(i.to_name), get_code_for_input(i.node, {'node': node, 'link': i.link})) if isinstance(i, Input) else i for i in inputs]
     compound = blender_material_node_to_operation(node)(args)
 
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None

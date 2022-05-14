@@ -16,6 +16,12 @@ PrimitiveType = typing.Literal['f32', 'i32', 'u32', 'b8', 'bsdf']
 # TODO: move types out of ast
 primitive_types = ['f32', 'i32', 'u32']
 
+@dataclass(slots=True)
+class SerializeCtx:
+  indent_level: int = 0
+  # TODO: need to build the string here and keep track of how large the
+  # current line is to control wrapping
+
 class Node(ABC):
   """
   A node in the Ast.
@@ -23,14 +29,14 @@ class Node(ABC):
   NOTE: slots are not allowed since these need to be fully mutable, some upstream consumers
   [ab]use that precondition to dynamically restructure the ast while building it
   """
-  def serialize(self) -> str:
+  def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
     raise NotImplementedError()
 
 @dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
   quotes_not_needed_pattern: ClassVar[re.Pattern[str]] = re.compile(r'[a-zA-Z]\w*')
-  def serialize(self):
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
     # TODO: escape quotes and space and nonprintables
     quotes_not_needed = Ident.quotes_not_needed_pattern.fullmatch(self.name) is not None
     if quotes_not_needed: return self.name
@@ -58,9 +64,9 @@ PrimitiveValue = str | int | float | bool | None | List["PrimitiveValue"]
 class Literal(Node):
   val: PrimitiveValue
 
-  def serialize(self) -> str:
+  def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
     if isinstance(self.val, list):
-      return f"[{', '.join(Literal.from_value(l).serialize() for l in self.val)}]"
+      return f"[{', '.join(Literal.from_value(l).serialize(c) for l in self.val)}]"
     return str(self.val)
 
   @staticmethod
@@ -73,26 +79,33 @@ class Literal(Node):
 class VarRef(Node, Named):
   derefs: List[str] = field(default_factory=list) # maybe convert this to binary dot operators
 
-  def serialize(self):
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
     if not self.derefs:
-      return self.name.serialize()
+      return self.name.serialize(c)
     else:
-      return f'{self.name.serialize()}.{".".join(self.derefs)}'
+      return f'{self.name.serialize(c)}.{".".join(self.derefs)}'
 
-# need this?
-Expr = Literal | VarRef
+# need this (yes)
+Expr = Literal | VarRef # | Call | BinOp
+
+@dataclass
+class NamedArg(Node, Named):
+  val: Expr
+
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
+    return f".{self.name.serialize(c)}={self.val.serialize(c)}"
 
 @dataclass
 class Call(Node, Named):
-  args: List[Node]
+  args: List[NamedArg | Expr]
 
-  def serialize(self):
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
     arg_per_line = len(self.args) > 4
     nl = '\n'
     indent = '  ' # TODO: do real tree formatting
-    return f'''{self.name.serialize()}({
+    return f'''{self.name.serialize(c)}({
       nl+indent if arg_per_line else ''
-    }{(','+nl+indent if arg_per_line else ', ').join(a.serialize() for a in self.args)}{
+    }{(','+nl+indent if arg_per_line else ', ').join(a.serialize(c) for a in self.args)}{
       nl if arg_per_line else ''
     })'''
 
@@ -103,8 +116,8 @@ class BinOp(Node):
   right: Node
 
   # TODO: this probably needs some serialization context in order to pretty print the op tree
-  def serialize(self):
-    return f'({self.left.serialize()} {self.op} {self.right.serialize()})'
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
+    return f'({self.left.serialize(c)} {self.op} {self.right.serialize(c)})'
 
 
 @dataclass
@@ -114,17 +127,17 @@ class ConstDecl(Node):
   comment: Optional[str] = None
   type: Optional[Type] = None
   
-  def serialize_type(self) -> str:
+  def serialize_type(self, c: SerializeCtx) -> str:
     if not self.type: return ''
-    elif isinstance(self.type, Struct): return self.type.name.serialize()
+    elif isinstance(self.type, Struct): return self.type.name.serialize(c)
     else: return self.type
 
-  def serialize(self):
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
     return (
       (f'/// {self.comment}' + '\n' if self.comment else '')
-      + f'const {self.name.serialize()}'
-      + (f': {self.serialize_type()}' if self.type else '')
-      + f' = {self.value.serialize()}'
+      + f'const {self.name.serialize(c)}'
+      + (f': {self.serialize_type(c)}' if self.type else '')
+      + f' = {self.value.serialize(c)}'
     )
 
 @dataclass
@@ -148,8 +161,8 @@ class Namespace(Node):
     self.decls.insert(index, new_decl)
     self.decl_by_name[new_decl.name] = new_decl
 
-  def serialize(self):
-    return '\n'.join(d.serialize() for d in self.decls)
+  def serialize(self, c: SerializeCtx = SerializeCtx()):
+    return '\n'.join(d.serialize(c) for d in self.decls)
 
 # A group of declarations
 Group = Namespace
