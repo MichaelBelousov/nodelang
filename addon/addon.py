@@ -48,15 +48,16 @@ class ProcessedNodesCollection:
     match code:
       case ast.VarRef() | ast.ConstDecl():
         pass
-      case ast.Literal():
+      case ast.Literal() | ast.BinOp():
         name = ast.Ident(referrer["link"].from_socket.name)
         value = copy(code)
         decl = ast.ConstDecl(name, value)
         self.inplace_become(code, ast.VarRef(name))
-        referring_code = self.node_to_code[referrer["node"]]
+        # FIXME: determine if the target ever exists at all
+        referring_code = self.node_to_code.get(referrer["node"])
         self.namespace.prepend_decl(decl, cast(ast.ConstDecl, referring_code))
       case _:
-        raise RuntimeError("unhandled promotion case")
+        raise RuntimeError(f"unhandled promotion case, {code.__class__.__name__}")
 
   @staticmethod
   def inplace_become(node: ast.Node, replacement: ast.Node) -> None:
@@ -65,18 +66,16 @@ class ProcessedNodesCollection:
     node.__dict__ = replacement.__dict__  # could clear+update but this should be safe
 
 
-def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -> ast.Module:
-  root = module
-
-  node_to_code = ProcessedNodesCollection(module)
+def analyze_output_node(node_to_code: ProcessedNodesCollection, output_node: bpy.types.ShaderNode) -> ast.Module:
 
   def get_code_for_input(node: bpy.types.ShaderNode, referrer: Optional[Referrer] = None) -> ast.VarRef | ast.Literal:
     if referrer is not None:
       maybe_already_visited = node_to_code.ref_node_and_get(node, referrer)
       if maybe_already_visited is not None: return maybe_already_visited
 
+
     ## handle primitives
-    # TODO: use a mapping for all node types
+    # TODO: use a mapping (or a match) for all node types
     if isinstance(node, bpy.types.ShaderNodeValue):
       node_to_code[node] = node.color
 
@@ -117,7 +116,7 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -
       else:
         # TODO: defaults should probably not be listed for most operations, in favor of requiring some kind of named arguments
         # e.g. binary operators require default args but functions require named args like `principled_shader(translucency=0.56)`
-        get_default_value(i)
+        return get_default_value(i)
 
     inputs = [get_input(i) for i in node.inputs if i.enabled]
     # TODO: this could be cleaned up
@@ -127,18 +126,21 @@ def analyze_output_node(module: ast.Module, output_node: bpy.types.ShaderNode) -
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None
 
     if isinstance(node, bpy.types.ShaderNodeMath):
+      node_to_code[node] = compound
       return compound
-      node_to_code[node] = decl
     else:
-      # TODO: consolidate with ast.StructAssignment
+      # TODO: consolidate with ast.StructAssignment?
       decl = ast.ConstDecl(name=ast.Ident(node.name), comment=node.label, type=type_, value=compound)
-      root.append_decl(decl)
+      node_to_code.namespace.append_decl(decl)
       node_to_code[node] = decl
-      return ast.VarRef(decl.name, [referrer["link"]] if referrer else [])
+      subfields = []
+      if referrer:
+        subfields = [referrer["link"].from_socket.name]
+      return ast.VarRef(decl.name, subfields)
 
   get_code_for_input(output_node)
 
-  return module
+  return node_to_code
 
 
 def analyze_material(material: bpy.types.Material) -> ast.Module:
@@ -147,8 +149,10 @@ def analyze_material(material: bpy.types.Material) -> ast.Module:
   no_output_links: Callable[[bpy.types.Node], bool] = lambda n: all(not o.links for o in n.outputs)
   end_nodes = [n for n in tree.nodes if no_output_links(n)]
 
+  node_to_code = ProcessedNodesCollection(module)
+
   for end_node in end_nodes:
-    analyze_output_node(module, end_node)
+    analyze_output_node(node_to_code, end_node)
 
   return module
 

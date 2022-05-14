@@ -110,7 +110,7 @@ class BinOp(Node):
 @dataclass
 class ConstDecl(Node):
   name: Ident
-  value: Literal | VarRef
+  value: Literal | VarRef | BinOp # TODO: this should really be an Expr sum type
   comment: Optional[str] = None
   type: Optional[Type] = None
   
