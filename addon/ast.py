@@ -164,7 +164,7 @@ class Namespace(Node):
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return '\n'.join(d.serialize(c) for d in self.decls)
 
-# A group of declarations
+# A group of declarationS
 Group = Namespace
 
 # The top level of the AST for a file

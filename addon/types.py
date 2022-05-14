@@ -1,5 +1,5 @@
 
-from typing import Any, Callable, List, Literal, Dict, Tuple
+from typing import Any, Callable, List, Literal, Dict, Optional, Tuple
 from dataclasses import dataclass
 from . import ast
 from .util import FrozenDict, freezeDict
@@ -47,20 +47,33 @@ class OpType():
   name: str
   op_type: Literal["binary", "unary", "function"]
 
+MaybeNamedArgs = List[Tuple[Optional[str], ast.Node]]
+
+def ignore_name(namedArgs: MaybeNamedArgs) -> List[ast.Node]:
+  return [a[1] for a in namedArgs]
+
+def from_named(namedArgs: MaybeNamedArgs) -> List[ast.NamedArg]:
+  """from a NamedArgs list create an actual ast slice"""
+  if len(namedArgs) > 0:
+    assert namedArgs[0][0] is not None, "optional name not supported for this type"
+  return [ast.NamedArg(ast.Ident(n), a) for n, a in namedArgs]
+
+# NOTE: possibly replace this with a `match` block that allows generics?
 # blender nodes with arguments to their specialized operation
-generic_node_types: Dict[Tuple[BlenderNodeTypeEnum, FrozenDict[str, Any]], Callable[[List[ast.Node]], ast.Node]] = {
-  ('BSDF_PRINCIPLED', freezeDict({})):          lambda args: ast.Call(ast.Ident('pbr_shader'), args),
-  ('MATH', freezeDict({'operation': 'ADD'})):   lambda args: ast.BinOp('+', *args),
-  ('MATH', freezeDict({'operation': 'SUB'})):   lambda args: ast.BinOp('-', *args),
-  ('MATH', freezeDict({'operation': 'MULTIPLY'})):   lambda args: ast.BinOp('*', *args),
-  ('MATH', freezeDict({'operation': 'DIV'})):   lambda args: ast.BinOp('/', *args),
-  ('MATH', freezeDict({'operation': 'ATAN2'})): lambda args: ast.Call(ast.Ident('atan2'), args),
-  ('MATH', freezeDict({'operation': 'SIN'})):   lambda args: ast.Call(ast.Ident('sin'), args),
+generic_node_types: Dict[Tuple[BlenderNodeTypeEnum, FrozenDict[str, Any]],
+                         Callable[[MaybeNamedArgs], ast.Node]] = {
+  ('BSDF_PRINCIPLED', freezeDict({})):          lambda args: ast.Call(ast.Ident('pbr_shader'), from_named(args)),
+  ('MATH', freezeDict({'operation': 'ADD'})):   lambda args: ast.BinOp('+', *ignore_name(args)),
+  ('MATH', freezeDict({'operation': 'SUB'})):   lambda args: ast.BinOp('-', *ignore_name(args)),
+  ('MATH', freezeDict({'operation': 'MULTIPLY'})):   lambda args: ast.BinOp('*', *ignore_name(args)),
+  ('MATH', freezeDict({'operation': 'DIV'})):   lambda args: ast.BinOp('/', *ignore_name(args)),
+  ('MATH', freezeDict({'operation': 'ATAN2'})): lambda args: ast.Call(ast.Ident('atan2'), ignore_name(args)),
+  ('MATH', freezeDict({'operation': 'SIN'})):   lambda args: ast.Call(ast.Ident('sin'), ignore_name(args)),
   # TODO: need a better way to output this...?
-  ('OUTPUT_MATERIAL', freezeDict({})):          lambda args: ast.Call(ast.Ident('output'), args),
+  ('OUTPUT_MATERIAL', freezeDict({})):          lambda args: ast.Call(ast.Ident('output'), from_named(args)),
 }
 
-def blender_material_node_to_operation(node: bpy.types.ShaderNodeMath) -> Callable[[List[ast.Node]], ast.Node]:
+def blender_material_node_to_operation(node: bpy.types.ShaderNode) -> Callable[[List[ast.Node]], ast.Node]:
   # linear search for now, probably better to do more efficient subset equality
   for (blender_node_type, required_props), op_maker in generic_node_types.items():
     if blender_node_type == node.type and all(getattr(node, k, object()) == v for k,v in required_props):

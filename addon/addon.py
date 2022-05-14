@@ -6,7 +6,7 @@ hopefully...
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Type, TypeVar, TypedDict, cast
+from typing import Callable, Dict, Optional, TypedDict, cast
 from copy import copy
 
 from addon.blender_util import isinstance_bpy_prop_array
@@ -16,7 +16,8 @@ from .bpy_wrap import bpy, in_blender
 
 class Referrer(TypedDict):
   node: bpy.types.ShaderNode
-  link: bpy.types.NodeLink
+  # link: bpy.types.NodeLink # old less adaptable attempt
+  name: str
 
 
 @dataclass(slots=True)
@@ -48,8 +49,9 @@ class ProcessedNodesCollection:
     match code:
       case ast.VarRef() | ast.ConstDecl():
         pass
+      # case ast.NamedArg():
       case ast.Literal() | ast.BinOp():
-        name = ast.Ident(referrer["link"].from_socket.name)
+        name = ast.Ident(referrer["name"])
         value = copy(code)
         decl = ast.ConstDecl(name, value)
         self.inplace_become(code, ast.VarRef(name))
@@ -84,43 +86,47 @@ def analyze_output_node(node_to_code: ProcessedNodesCollection, output_node: bpy
     @dataclass(slots=True)
     class Input:
       # the node which this input comes from
-      node: bpy.types.Node
+      value: bpy.types.ShaderNode | ast.Expr
       link: bpy.types.NodeLink
-      from_name: str
-      from_type: str # TODO: make this an enum
-      to_name: str
-      to_type: str
+      # DEPRECATED
+      # from_name: str
+      # from_type: str # TODO: make this an enum
+      # to_name: str
+      # to_type: str
 
     # TODO: move to some module for dealing with blender nodes
-    def get_default_value(i: bpy.types.NodeSocket) -> Any:
+    def get_default_value(i: bpy.types.NodeSocket) -> ast.Literal | None:
       # if hasattr(i, 'default_value'):
       if isinstance(i, (bpy.types.NodeSocketFloat, bpy.types.NodeSocketBool, bpy.types.NodeSocketColor)):
         if isinstance_bpy_prop_array(i.default_value):
           return ast.Literal.from_value(list(i.default_value))
         return ast.Literal.from_value(i.default_value)
-      return ast.Literal.from_value(None)
 
     # TODO: might need to check properties of node against its base class to see if any extra properties are acting as dropdowns...
     # or just figure out how to get the dropdown properties
-    def get_input(i: bpy.types.NodeSocketShader) -> Input:
+    def get_input(i: bpy.types.NodeSocketShader) -> Input | None:
       if i.is_linked:
-      # TODO: assert there is not more than 1 input link
         assert len(i.links) == 1, "there can only be one input link if it is linked"
         return Input(
-          node=i.links[0].from_socket.node,
+          value=i.links[0].from_socket.node,
           link=i.links[0],
           # TODO: analyze cast if the types aren't the same
-          from_name=i.links[0].from_socket.name,
-          from_type=i.links[0].from_socket.name,
-          to_name=i.links[0].to_socket.name,
-          to_type=i.type,
+          # DEPRECATE
+          # from_name=i.links[0].from_socket.name,
+          # from_type=i.links[0].from_socket.name,
+          # to_name=i.links[0].to_socket.name,
+          # to_type=i.type,
         )
       else:
         return get_default_value(i)
 
-    inputs = [get_input(i) for i in node.inputs if i.enabled]
+    inputs = [(cast(str, i.name), get_input(i)) for i in node.inputs if i.enabled] # if not enabled it doesn't show up in the UI (e.g. math node args) so ignore
     # TODO: this could be cleaned up
-    args = [ast.NamedArg(ast.Ident(i.to_name), get_code_for_input(i.node, {'node': node, 'link': i.link})) if isinstance(i, Input) else i for i in inputs]
+    args = [(name, get_code_for_input(i.value, {'node': node, 'name': i.link.from_socket.name}))
+            if isinstance(i, Input)
+            else (name, i)
+            for name, i in inputs
+            if i is not None] # is None if get_default_value didn't extract a default value, i.e. wasn't a float
     compound = blender_material_node_to_operation(node)(args)
 
     type_ = blender_material_type_to_primitive(node.outputs[0].type) if node.outputs else None
@@ -135,7 +141,7 @@ def analyze_output_node(node_to_code: ProcessedNodesCollection, output_node: bpy
       node_to_code[node] = decl
       subfields = []
       if referrer:
-        subfields = [referrer["link"].from_socket.name]
+        subfields = [referrer["name"]]
       return ast.VarRef(decl.name, subfields)
 
   get_code_for_input(output_node)
