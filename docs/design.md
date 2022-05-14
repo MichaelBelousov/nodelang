@@ -32,3 +32,10 @@ Detecting this is difficult, probably as a start, will use a weighted vertical s
 and place the orphan code as a comment above.
 
 The above solution is somewhat unaligned with achieving parity but more aligned with semantic intent.
+
+### Meanings and conventions in nodes
+
+- orphan nodes are vertically aligned comments
+- reroute nodes imply intermediate variables... this isn't always true
+- reused outputs imply an intermediate variable
+- groups are used as variable names

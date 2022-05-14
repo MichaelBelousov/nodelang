@@ -17,11 +17,16 @@ PrimitiveType = typing.Literal['f32', 'i32', 'u32', 'b8', 'bsdf']
 primitive_types = ['f32', 'i32', 'u32']
 
 class Node(ABC):
-  """A node in the Ast"""
+  """
+  A node in the Ast.
+
+  NOTE: slots are not allowed since these need to be fully mutable, some upstream consumers
+  [ab]use that precondition to dynamically restructure the ast while building it
+  """
   def serialize(self) -> str:
     raise NotImplementedError()
 
-@dataclass(unsafe_hash=True, slots=True)
+@dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
   quotes_not_needed_pattern: ClassVar[re.Pattern[str]] = re.compile(r'[a-zA-Z]\w*')
@@ -106,8 +111,8 @@ class BinOp(Node):
 class ConstDecl(Node):
   name: Ident
   value: Literal | VarRef
-  comment: Optional[str]
-  type: Optional[Type]
+  comment: Optional[str] = None
+  type: Optional[Type] = None
   
   def serialize_type(self) -> str:
     if not self.type: return ''
@@ -130,6 +135,7 @@ class StructAssignment(Node):
 
 @dataclass
 class Namespace(Node):
+  # TODO: consider having it be a list of ConstDecl or Stmt
   decls: List[Node] = field(default_factory=list)
   decl_by_name: Dict[Ident, Node] = field(default_factory=dict)
 
@@ -137,9 +143,10 @@ class Namespace(Node):
     self.decls.append(decl)
     self.decl_by_name[decl.name] = decl
   
-  def prepend_decl(self, decl: ConstDecl) -> None:
-    self.decls.insert(0, decl)
-    self.decl_by_name[decl.name] = decl
+  def prepend_decl(self, new_decl: ConstDecl, target: Optional[ConstDecl] = None) -> None:
+    index = 0 if target is None else self.decls.index(target)
+    self.decls.insert(index, new_decl)
+    self.decl_by_name[new_decl.name] = new_decl
 
   def serialize(self):
     return '\n'.join(d.serialize() for d in self.decls)
