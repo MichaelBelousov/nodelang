@@ -18,9 +18,14 @@ primitive_types = ['f32', 'i32', 'u32']
 
 @dataclass(slots=True)
 class SerializeCtx:
+  outstream: str = ""
   indent_level: int = 0
   # TODO: need to build the string here and keep track of how large the
   # current line is to control wrapping
+
+  def write(self, s: str) -> None:
+    """write out a string, (performing formatting implicitly in this subclass)"""
+    pass
 
 class Node(ABC):
   """
@@ -115,7 +120,8 @@ class BinOp(Node):
   left: Node
   right: Node
 
-  # TODO: this probably needs some serialization context in order to pretty print the op tree
+  # TODO: instead of always wrapping in `()` that should be a part of the AST not of the serialization
+  # TODO: print print using serialization context
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return f'({self.left.serialize(c)} {self.op} {self.right.serialize(c)})'
 

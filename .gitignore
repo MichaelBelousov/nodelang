@@ -9,3 +9,6 @@ __pycache__
 # vim
 .*.sw[m-s]
 .sw[m-s]
+
+# zig
+zig-cache
