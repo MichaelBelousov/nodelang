@@ -32,6 +32,10 @@ pub const Tok = union (enum) {
 const Token = struct {
   tok: Tok,
   str: []const u8,
+
+  pub fn new(tok: Tok, str: [] const u8) Token {
+    return Token{.tok=tok, .str=str};
+  }
 };
 
 pub const TokenizeErr = error {
@@ -66,10 +70,10 @@ pub const ParseContext = struct {
     return TokenizeErr.UnknownTok;
   }
 
-  fn skip_whitespace(self: *ParseContext) TokenizeErr!void {
-    while (self.source[self.index]) |c| {
+  fn skip_available(self: *ParseContext) TokenizeErr!void {
+    while (self.nth(0)) |c| {
       switch (c) {
-        ' ' | '\t' | '\n' => { self.index += 1; },
+        ' ' , '\t' , '\n' => { self.index += 1; },
         else => return,
       }
     }
@@ -77,20 +81,18 @@ pub const ParseContext = struct {
   }
 
   fn consume_tok(self: *ParseContext) TokenizeErr!Token {
-    try self.skip_whitespace();
-    const token = switch (self.nth(0)) {
-      null => TokenizeErr.Eof,
-      'c' => switch (self.remining_src()[1]) {
-        null => TokenizeErr.Eof,
+    try self.skip_available();
+    const tokenOrErr: TokenizeErr!Token = if (self.nth(0)) |zeroth| switch (zeroth) {
+      'c' => if (self.nth(1)) |oneth| switch (oneth) {
         'o' => self.try_next_tok_const(),
-        else => self.next_ident(),
-      },
-      // TODO: have another function specifically for grabbing the next n chars as a token
-      '+' => Token{.plus, self.remaining_src()[0..1]},
-      '-' => Token{.minus, self.remaining_src()[0..1]},
+        else => self.try_next_tok_ident(),
+      } else TokenizeErr.Eof,
+      '+' => Token.new(.plus, self.remaining_src()[0..1]),
+      '-' => Token.new(.minus, self.remaining_src()[0..1]),
       else => TokenizeErr.UnknownTok
-    };
-    self.index += token.len;
+    } else TokenizeErr.Eof;
+    const token = try tokenOrErr;
+    self.index += token.str.len;
     return token;
   }
 
