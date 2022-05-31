@@ -1,6 +1,8 @@
 //! parser for nodelang written in zig 
 
-const t = @import("std").testing;
+const std = @import("std");
+const t = std.testing;
+const debug = std.debug;
 
 pub const Tok = union (enum) {
   ident,
@@ -63,9 +65,23 @@ pub const ParseContext = struct {
     return TokenizeErr.UnknownTok;
   }
 
+  // TODO: allow starting and ending single quotes with escapes
   /// try to get the next token as if it's an identifier, assume unknown token if we fail
   /// assumes whitespace has been skipped
   fn try_next_tok_ident(self: *ParseContext) TokenizeErr!Token {
+    var i: u32 = 1; // skip first char since it is assumed to be an identifier start
+    while (self.nth(i)) |c| {
+      switch (c) {
+        'a'...'z', 'A'...'Z', '0'...'9', '_' => { i += 1; },
+        else => return Token.new(.ident, self.remaining_src()[0..i]),
+      }
+    }
+    return TokenizeErr.Eof;
+  }
+
+  /// try to get the next token as if it's a number, assume unknown token if we fail
+  /// assumes whitespace has been skipped
+  fn try_next_tok_number(self: *ParseContext) TokenizeErr!Token {
     _ = self;
     return TokenizeErr.UnknownTok;
   }
@@ -89,6 +105,8 @@ pub const ParseContext = struct {
       } else TokenizeErr.Eof,
       '+' => Token.new(.plus, self.remaining_src()[0..1]),
       '-' => Token.new(.minus, self.remaining_src()[0..1]),
+      'a'...'b', 'd'...'z', 'A'...'Z' => self.try_next_tok_ident(),
+      '0'...'9' => self.try_next_tok_number(),
       else => TokenizeErr.UnknownTok
     } else TokenizeErr.Eof;
     const token = try tokenOrErr;
@@ -106,7 +124,9 @@ pub const ParseContext = struct {
 const Ident = struct {
   s: []const u8,
 
-  /// always returns a Node.ident
+  pub fn new(s: []const u8) Ident { return Ident{.s=s}; }
+
+  /// always returns a Node.ident or null
   fn parse(pctx: *ParseContext) ?Node {
     const maybe_tok = pctx.consume_tok();
     if (maybe_tok) |tok| {
@@ -118,11 +138,10 @@ const Ident = struct {
 };
 
 test "parse Ident" {
-  var pctx = ParseContext.new("hello");
-  try t.expectEqual(
-    Ident.parse(&pctx),
-    Node{.ident = Ident{.s="hello"}}
-  );
+  var pctx = ParseContext.new("hello ");
+  const parsed = Ident.parse(&pctx);
+  try t.expect(Node.ident == parsed.?);
+  try t.expectEqualStrings("hello", parsed.?.ident.s);
 }
 
 pub const BinOp = union (enum) {
