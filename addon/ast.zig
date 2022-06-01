@@ -6,8 +6,8 @@ const debug = std.debug;
 
 pub const Tok = union (enum) {
   ident,
-  integer,
-  float,
+  integer: i64,
+  float: f64,
   string,
   lBrack, //[
   rBrack, //]
@@ -54,36 +54,57 @@ pub const ParseContext = struct {
   fn remaining_src(self: ParseContext) []const u8 { return self.source[self.index..]; }
 
   /// indexing but with optionals
-  fn nth(self: ParseContext, n: u32) ?u8 {
+  fn nth(self: ParseContext, n: usize) ?u8 {
     return if (n < self.remaining_src().len) self.remaining_src()[n] else null;
-  }
-
-  /// try to get the next token as if it's a const, assume unknown token if we fail
-  /// assumes whitespace has been skipped
-  fn try_next_tok_const(self: *ParseContext) TokenizeErr!Token {
-    _ = self;
-    return TokenizeErr.UnknownTok;
   }
 
   // TODO: allow starting and ending single quotes with escapes
   /// try to get the next token as if it's an identifier, assume unknown token if we fail
-  /// assumes whitespace has been skipped
-  fn try_next_tok_ident(self: *ParseContext) TokenizeErr!Token {
-    var i: u32 = 1; // skip first char since it is assumed to be an identifier start
+  /// - assumes whitespace has been skipped
+  fn try_next_tok_keyword_or_ident(self: *ParseContext) TokenizeErr!Token {
+    var i: usize = 1; // skip first char since it is assumed to be an identifier start
+    var src: []const u8 = "";
     while (self.nth(i)) |c| {
       switch (c) {
         'a'...'z', 'A'...'Z', '0'...'9', '_' => { i += 1; },
-        else => return Token.new(.ident, self.remaining_src()[0..i]),
+        else => { src = self.remaining_src()[0..i]; break; }
       }
     }
-    return TokenizeErr.Eof;
+    if (std.mem.eql(u8, src, "const")) {
+      return Token.new(.@"const", self.remaining_src()[0..i]);
+    } else {
+      return Token.new(.ident, self.remaining_src()[0..i]);
+    }
   }
 
   /// try to get the next token as if it's a number, assume unknown token if we fail
-  /// assumes whitespace has been skipped
+  /// - assumes whitespace has been skipped
+  /// - assumes context starts with a digit
   fn try_next_tok_number(self: *ParseContext) TokenizeErr!Token {
-    _ = self;
-    return TokenizeErr.UnknownTok;
+      // TODO: roll my own parser to not have redundant logic
+      const hasPrefixChar = std.ascii.isAlpha(self.remaining_src()[1]) and std.ascii.isDigit(self.remaining_src()[2]);
+      var hadPoint = false;
+      var tokEnd: usize = 0;
+      for (self.remaining_src()) |c, i| {
+        if (c == '.') {
+          hadPoint = true;
+          continue;
+        }
+        if (c == '_') continue;
+        const isPrefixChar = i == 1 and hasPrefixChar;
+        if (!std.ascii.isDigit(c) and !isPrefixChar) {
+          tokEnd = i;
+          break;
+        }
+      }
+      const src = self.remaining_src()[0..tokEnd];
+      if (hadPoint) {
+        const val = std.fmt.parseFloat(f64, src) catch return TokenizeErr.UnknownTok;
+        return Token.new(.{.float=val}, src);
+      } else {
+        const val = std.fmt.parseInt(i64, src, 0) catch return TokenizeErr.UnknownTok;
+        return Token.new(.{.integer=val}, src);
+      }
   }
 
   fn skip_available(self: *ParseContext) TokenizeErr!void {
@@ -99,13 +120,13 @@ pub const ParseContext = struct {
   fn consume_tok(self: *ParseContext) TokenizeErr!Token {
     try self.skip_available();
     const tokenOrErr: TokenizeErr!Token = if (self.nth(0)) |zeroth| switch (zeroth) {
-      'c' => if (self.nth(1)) |oneth| switch (oneth) {
-        'o' => self.try_next_tok_const(),
-        else => self.try_next_tok_ident(),
-      } else TokenizeErr.Eof,
+      // 'c' => if (self.nth(1)) |oneth| switch (oneth) {
+      //   'o' => self.try_next_tok_const(),
+      //   else => self.try_next_tok_ident(),
+      // } else TokenizeErr.Eof,
       '+' => Token.new(.plus, self.remaining_src()[0..1]),
       '-' => Token.new(.minus, self.remaining_src()[0..1]),
-      'a'...'b', 'd'...'z', 'A'...'Z' => self.try_next_tok_ident(),
+      'a'...'z', 'A'...'Z' => self.try_next_tok_keyword_or_ident(),
       '0'...'9' => self.try_next_tok_number(),
       else => TokenizeErr.UnknownTok
     } else TokenizeErr.Eof;
@@ -138,7 +159,7 @@ const Ident = struct {
 };
 
 test "parse Ident" {
-  var pctx = ParseContext.new("hello ");
+  var pctx = ParseContext.new("hello const");
   const parsed = Ident.parse(&pctx);
   try t.expect(Node.ident == parsed.?);
   try t.expectEqualStrings("hello", parsed.?.ident.s);
