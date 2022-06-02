@@ -118,18 +118,20 @@ pub const ParseContext = struct {
   }
 
   fn consume_tok(self: *ParseContext) TokenizeErr!Token {
-    try self.skip_available();
-    const tokenOrErr: TokenizeErr!Token = if (self.nth(0)) |zeroth| switch (zeroth) {
-      // 'c' => if (self.nth(1)) |oneth| switch (oneth) {
-      //   'o' => self.try_next_tok_const(),
-      //   else => self.try_next_tok_ident(),
-      // } else TokenizeErr.Eof,
-      '+' => Token.new(.plus, self.remaining_src()[0..1]),
-      '-' => Token.new(.minus, self.remaining_src()[0..1]),
-      'a'...'z', 'A'...'Z' => self.try_next_tok_keyword_or_ident(),
-      '0'...'9' => self.try_next_tok_number(),
-      else => TokenizeErr.UnknownTok
-    } else TokenizeErr.Eof;
+    const tokenOrErr: TokenizeErr!Token =
+      if (std.mem.startsWith(u8, "^", self.remaining_src())) (
+        if (std.mem.startsWith(u8, "^^", self.remaining_src())) Token.new(Tok.caretCaret, self.remaining_src()[0..2])
+        else if (std.mem.startsWith(u8, "^/", self.remaining_src())) Token.new(Tok.caretFSlash, self.remaining_src()[0..2])
+        else Token.new(Tok.caret, self.remaining_src()[0..1])
+      )
+      else if (std.mem.startsWith(u8, "+", self.remaining_src())) return Token.new(Tok.plus, self.remaining_src()[0..1])
+      else if (std.mem.startsWith(u8, ":", self.remaining_src())) return Token.new(Tok.colon, self.remaining_src()[0..1])
+      else if (std.mem.startsWith(u8, "-", self.remaining_src())) return Token.new(Tok.minus, self.remaining_src()[0..1])
+      else if (switch (self.remaining_src()[0]) { 'a'...'z', 'A'...'Z', '_' => true, else => false })
+                                                                  self.try_next_tok_keyword_or_ident()
+      else if (switch (self.remaining_src()[0]) { '0'...'9' => true, else => false })
+                                                                  self.try_next_tok_number()
+      else TokenizeErr.Eof;
     const token = try tokenOrErr;
     self.index += token.str.len;
     return token;
@@ -147,11 +149,11 @@ const Ident = struct {
 
   pub fn new(s: []const u8) Ident { return Ident{.s=s}; }
 
-  /// always returns a Node.ident or null
-  fn parse(pctx: *ParseContext) ?Node {
+  /// parses an Ident out of the context, null if it fails
+  fn parse(pctx: *ParseContext) ?Ident {
     const maybe_tok = pctx.consume_tok();
     if (maybe_tok) |tok| {
-      if (tok.tok == Tok.ident) { return Node{.ident = Ident{.s = tok.str}}; }
+      if (tok.tok == Tok.ident) { return Ident{.s = tok.str}; }
       else pctx.put_back(tok);
     } else |_| {}
     return null;
@@ -161,18 +163,101 @@ const Ident = struct {
 test "parse Ident" {
   var pctx = ParseContext.new("hello const");
   const parsed = Ident.parse(&pctx);
-  try t.expect(Node.ident == parsed.?);
-  try t.expectEqualStrings("hello", parsed.?.ident.s);
+  try t.expect(parsed != null);
+  try t.expectEqualStrings("hello", parsed.?.s);
+}
+
+fn TokOrNodeTypesToTuple(comptime tokOrNodeTypes: anytype) type {
+  var fields: [tokOrNodeTypes.len]std.builtin.TypeInfo.StructField = undefined;
+  for (tokOrNodeTypes) |tokOrNodeType, i| {
+    const isParseable = @TypeOf(tokOrNodeType) == type;
+    //@compileLog("tokOrNodeType = ", tokOrNodeType);
+    //const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?;
+    fields[i] = std.builtin.TypeInfo.StructField{
+      .name = std.fmt.comptimePrint("{}", .{i}),
+      .field_type = if (isParseable) tokOrNodeType else Token,
+      .default_value = null,
+      .is_comptime = false,
+      .alignment = 8,
+    };
+  }
+
+  return @Type(std.builtin.TypeInfo{
+    .Struct = .{
+      .layout = std.builtin.TypeInfo.ContainerLayout.Auto,
+      .fields = &fields,
+      .decls = &.{},
+      .is_tuple = true,
+    }
+  });
+}
+
+/// parse several tokens, putting them all back if failing
+fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!?TokOrNodeTypesToTuple(tokOrNodeTypes) {
+  var result: TokOrNodeTypesToTuple(tokOrNodeTypes) = undefined;
+  inline for (tokOrNodeTypes) |tokOrNodeType, i| {
+    const isParseable = @TypeOf(tokOrNodeType) == type;
+    const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?;
+
+    if (isParseable) {
+      // FIXME: this doesn't put anything back! (ast nodes should get a start/end range)
+      if (tokOrNodeType.parse(pctx)) |node| {
+        result[i] = node;
+      } else {
+        @panic("no putback implementation yet!");
+      }
+    } else if (isToken) {
+      const tok = try pctx.consume_tok();
+      if (tok.tok == tokOrNodeType) {
+        result[i] = tok;
+      } else {
+        var j = i;
+        while (true) {
+          if (j == 0) return null;
+          j -= 1;
+          // FIXME
+          //pctx.put_back(result[j]);
+        }
+      }
+    } else {
+      @compileLog("bad tokOrNodeType = ", @TypeOf(tokOrNodeType));
+      @compileError("parseMany list included something that was neither a token nor a parseable struct");
+    }
+  }
+  return result;
+}
+
+const Decl = struct {
+  ident: Ident,
+  /// always returns a Node.decl or null
+  fn parse(pctx: *ParseContext) ?Decl {
+    const maybeToks = parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch return null;
+    if (maybeToks) |toks| {
+      const ident = toks[1];
+      return Decl{ .ident=ident };
+    } else {
+      return null;
+    }
+  }
+};
+
+test "parse Decl" {
+  var pctx = ParseContext.new("const x: Test = 5");
+  const parsed = Decl.parse(&pctx);
+  //try t.expect(parsed != null);
+  _ = pctx;
+  _ = parsed;
+  // try t.expectEqualStrings("x", parsed.?.ident.s);
+  try t.expectEqualStrings("x", "x");
 }
 
 pub const BinOp = union (enum) {
   add,
   sub,
-  dot,
+  dot
 };
 
 pub const Node = union (enum) {
-  ident: Ident,
   integer: i64,
   float: f64,
   @"bool": bool,
