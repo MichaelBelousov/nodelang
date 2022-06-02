@@ -118,6 +118,7 @@ pub const ParseContext = struct {
   }
 
   fn consume_tok(self: *ParseContext) TokenizeErr!Token {
+    try self.skip_available();
     const tokenOrErr: TokenizeErr!Token =
       if (std.mem.startsWith(u8, "^", self.remaining_src())) (
         if (std.mem.startsWith(u8, "^^", self.remaining_src())) Token.new(Tok.caretCaret, self.remaining_src()[0..2])
