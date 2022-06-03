@@ -41,6 +41,7 @@ const Token = struct {
 };
 
 pub const TokenizeErr = error {
+  // FIXME: Eof is not actually an error, perhaps the tokenizer should instead return optional and eof is null
   Eof,
   UnknownTok,
 };
@@ -49,7 +50,7 @@ pub const ParseContext = struct {
   source: []const u8,
   index: u64,
 
-  fn new(s: []const u8) ParseContext { return ParseContext{.source=s, .index=0}; }
+  fn new(source: []const u8) ParseContext { return ParseContext{.source=source, .index=0}; }
 
   fn remaining_src(self: ParseContext) []const u8 { return self.source[self.index..]; }
 
@@ -117,6 +118,16 @@ pub const ParseContext = struct {
     return TokenizeErr.Eof;
   }
 
+  fn putBackSkips(self: *ParseContext) TokenizeErr!void {
+    while (self.nth(0)) |c| {
+      switch (c) {
+        ' ' , '\t' , '\n' => { self.index -= 1; },
+        else => return,
+      }
+    }
+    return TokenizeErr.Eof;
+  }
+
   fn consume_tok(self: *ParseContext) TokenizeErr!Token {
     try self.skip_available();
     const tokenOrErr: TokenizeErr!Token =
@@ -138,24 +149,30 @@ pub const ParseContext = struct {
     return token;
   }
 
-  /// not checked
-  fn put_back(self: *ParseContext, token: Token) void {
+  /// TODO: add checking in debug mode that the token placed back is correct
+  fn putBack(self: *ParseContext, token: Token) void {
     self.index -= token.str.len;
     if (self.index < 0) @panic("you can't put back a token you didn't get");
+    putBackSkips();
   }
 };
 
 const Ident = struct {
-  s: []const u8,
+  name: []const u8,
+  // TODO: come up with a way to enforce the concept/comptime-interface of "Node"
+  // maybe just a comptime function that ensures it, or one that adds it and generates a constructor for you
+  srcSlice: []const u8,
 
-  pub fn new(s: []const u8) Ident { return Ident{.s=s}; }
+  // FIXME: srcSlice is not always the name! once I added delimiter parsing, identifiers in nodelang can be `'` delimited which
+  // is not in the name but is in the srcSlice
+  pub fn new(name: []const u8) Ident { return Ident{.name=name, .srcSlice=name}; }
 
   /// parses an Ident out of the context, null if it fails
   fn parse(pctx: *ParseContext) ?Ident {
     const maybe_tok = pctx.consume_tok();
     if (maybe_tok) |tok| {
-      if (tok.tok == Tok.ident) { return Ident{.s = tok.str}; }
-      else pctx.put_back(tok);
+      if (tok.tok == Tok.ident) { return Ident{.name = tok.str}; }
+      else pctx.putBack(tok);
     } else |_| {}
     return null;
   }
@@ -165,7 +182,7 @@ test "parse Ident" {
   var pctx = ParseContext.new("hello const");
   const parsed = Ident.parse(&pctx);
   try t.expect(parsed != null);
-  try t.expectEqualStrings("hello", parsed.?.s);
+  try t.expectEqualStrings("hello", parsed.?.name);
 }
 
 fn TokOrNodeTypesToTuple(comptime tokOrNodeTypes: anytype) type {
@@ -230,12 +247,14 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
 
 const Decl = struct {
   ident: Ident,
-  /// always returns a Node.decl or null
+  srcSlice: []const u8,
+
   fn parse(pctx: *ParseContext) ?Decl {
-    const maybeToks = parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch return null;
-    if (maybeToks) |toks| {
+    var srcStart = pctx.index;
+    if (parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch null) |toks| {
       const ident = toks[1];
-      return Decl{ .ident=ident };
+      const srcEnd = pctx.index;
+      return Decl{ .ident=ident, .srcSlice=pctx.source[srcStart..srcEnd] };
     } else {
       return null;
     }
@@ -248,7 +267,7 @@ test "parse Decl" {
   //try t.expect(parsed != null);
   _ = pctx;
   _ = parsed;
-  // try t.expectEqualStrings("x", parsed.?.ident.s);
+  // try t.expectEqualStrings("x", parsed.?.ident.name);
   try t.expectEqualStrings("x", "x");
 }
 
