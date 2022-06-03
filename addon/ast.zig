@@ -153,7 +153,7 @@ pub const ParseContext = struct {
   fn putBack(self: *ParseContext, token: Token) void {
     self.index -= token.str.len;
     if (self.index < 0) @panic("you can't put back a token you didn't get");
-    putBackSkips();
+    //putBackSkips();
   }
 };
 
@@ -161,11 +161,11 @@ const Ident = struct {
   name: []const u8,
   // TODO: come up with a way to enforce the concept/comptime-interface of "Node"
   // maybe just a comptime function that ensures it, or one that adds it and generates a constructor for you
-  srcSlice: []const u8,
+  //srcSlice: []const u8,
 
   // FIXME: srcSlice is not always the name! once I added delimiter parsing, identifiers in nodelang can be `'` delimited which
   // is not in the name but is in the srcSlice
-  pub fn new(name: []const u8) Ident { return Ident{.name=name, .srcSlice=name}; }
+  pub fn new(name: []const u8) Ident { return Ident{.name=name }; } //.srcSlice=name };
 
   /// parses an Ident out of the context, null if it fails
   fn parse(pctx: *ParseContext) ?Ident {
@@ -247,14 +247,14 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
 
 const Decl = struct {
   ident: Ident,
-  srcSlice: []const u8,
+  //srcSlice: []const u8,
 
   fn parse(pctx: *ParseContext) ?Decl {
-    var srcStart = pctx.index;
+    //var srcStart = pctx.index;
     if (parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch null) |toks| {
       const ident = toks[1];
-      const srcEnd = pctx.index;
-      return Decl{ .ident=ident, .srcSlice=pctx.source[srcStart..srcEnd] };
+      //const srcEnd = pctx.index;
+      return Decl{ .ident=ident };// .srcSlice=pctx.source[srcStart..srcEnd] };
     } else {
       return null;
     }
