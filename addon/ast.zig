@@ -216,30 +216,58 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
   inline for (tokOrNodeTypes) |tokOrNodeType, i| {
     const isParseable = @TypeOf(tokOrNodeType) == type;
     const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?;
+    var put_back_cuz_err = 0;
+
+    const maybe_consumed =
+      if (isParseable)
+        tokOrNodeType.parse(pctx)
+      else if (isToken) _: {
+        // FIXME: eof is treated as an error here... which is wrong, see notes on TokenizeErr.Eof above
+        const tok = try pctx.consume_tok();
+        break :_ if (tok.tok == tokOrNodeType) tok else null;
+      } else _: {
+        @compileLog("bad tokOrNodeType = ", @TypeOf(tokOrNodeType));
+        @compileError("parseMany list included something that was neither a token nor a parseable struct");
+        break :_ null;
+      };
+
+      if (maybe_consumed) |consumed| {
+        result[i] = consumed;
+      } else  {
+        // this could probably be done more elegantly by adding a local function and returning a real error here
+        put_back_cuz_err = i - 1;
+        break;
+      }
 
     if (isParseable) {
       // FIXME: this doesn't put anything back! (ast nodes should get a start/end range)
       if (tokOrNodeType.parse(pctx)) |node| {
         result[i] = node;
       } else {
-        @panic("no putback implementation yet!");
+        // TODO: dedup with other branch
+        put_back_cuz_err = i - 1;
+        break;
       }
     } else if (isToken) {
       const tok = try pctx.consume_tok();
       if (tok.tok == tokOrNodeType) {
         result[i] = tok;
       } else {
-        var j = i;
-        while (true) {
-          if (j == 0) return null;
-          j -= 1;
-          // FIXME
-          //pctx.put_back(result[j]);
-        }
       }
     } else {
       @compileLog("bad tokOrNodeType = ", @TypeOf(tokOrNodeType));
       @compileError("parseMany list included something that was neither a token nor a parseable struct");
+    }
+
+    if (!put_back_cuz_err) return;
+
+    // clean up the errors
+    var j = i;
+    while (true) {
+      if (j == 0) return null;
+      j -= 1;
+      // FIXME
+      //pctx.put_back(result[j]);
     }
   }
   return result;
