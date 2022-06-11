@@ -41,9 +41,11 @@ const Token = struct {
 };
 
 pub const TokenizeErr = error {
-  // FIXME: Eof is not actually an error, perhaps the tokenizer should instead return optional and eof is null
-  Eof,
   UnknownTok,
+};
+
+pub const ParseError = error {
+  UnknownTok
 };
 
 pub const ParseContext = struct {
@@ -51,6 +53,8 @@ pub const ParseContext = struct {
   index: u64,
 
   fn new(source: []const u8) ParseContext { return ParseContext{.source=source, .index=0}; }
+
+  fn slice(self: *ParseContext, start: usize, end: usize) []const u8 { return self.source[start..end]; }
 
   fn remaining_src(self: ParseContext) []const u8 { return self.source[self.index..]; }
 
@@ -62,7 +66,7 @@ pub const ParseContext = struct {
   // TODO: allow starting and ending single quotes with escapes
   /// try to get the next token as if it's an identifier, assume unknown token if we fail
   /// - assumes whitespace has been skipped
-  fn try_next_tok_keyword_or_ident(self: *ParseContext) TokenizeErr!Token {
+  fn try_next_tok_keyword_or_ident(self: *ParseContext) TokenizeErr!?Token {
     var i: usize = 1; // skip first char since it is assumed to be an identifier start
     var src: []const u8 = "";
     while (self.nth(i)) |c| {
@@ -81,7 +85,7 @@ pub const ParseContext = struct {
   /// try to get the next token as if it's a number, assume unknown token if we fail
   /// - assumes whitespace has been skipped
   /// - assumes context starts with a digit
-  fn try_next_tok_number(self: *ParseContext) TokenizeErr!Token {
+  fn try_next_tok_number(self: *ParseContext) TokenizeErr!?Token {
       // TODO: roll my own parser to not have redundant logic
       const hasPrefixChar = std.ascii.isAlpha(self.remaining_src()[1]) and std.ascii.isDigit(self.remaining_src()[2]);
       var hadPoint = false;
@@ -108,17 +112,18 @@ pub const ParseContext = struct {
       }
   }
 
-  fn skip_available(self: *ParseContext) TokenizeErr!void {
-    while (self.nth(0)) |c| {
+  // TODO: return ?enum{.eof}
+  /// returns false if hit Eof
+  fn skipAvailable(self: *ParseContext) bool {
+    return while (self.nth(0)) |c| {
       switch (c) {
         ' ' , '\t' , '\n' => { self.index += 1; },
-        else => return,
+        else => break true,
       }
-    }
-    return TokenizeErr.Eof;
+    } else false;
   }
 
-  fn putBackSkips(self: *ParseContext) TokenizeErr!void {
+  fn putBackSkips(self: *ParseContext) void {
     while (self.nth(0)) |c| {
       switch (c) {
         ' ' , '\t' , '\n' => { self.index -= 1; },
@@ -128,9 +133,9 @@ pub const ParseContext = struct {
     return TokenizeErr.Eof;
   }
 
-  fn consume_tok(self: *ParseContext) TokenizeErr!Token {
-    try self.skip_available();
-    const tokenOrErr: TokenizeErr!Token =
+  fn consume_tok(self: *ParseContext) TokenizeErr!?Token {
+    if (!self.skipAvailable()) return null;
+    const maybeToken: TokenizeErr!?Token =
       if (std.mem.startsWith(u8, "^", self.remaining_src())) (
         if (std.mem.startsWith(u8, "^^", self.remaining_src())) Token.new(Tok.caretCaret, self.remaining_src()[0..2])
         else if (std.mem.startsWith(u8, "^/", self.remaining_src())) Token.new(Tok.caretFSlash, self.remaining_src()[0..2])
@@ -143,17 +148,26 @@ pub const ParseContext = struct {
                                                                   self.try_next_tok_keyword_or_ident()
       else if (switch (self.remaining_src()[0]) { '0'...'9' => true, else => false })
                                                                   self.try_next_tok_number()
-      else TokenizeErr.Eof;
-    const token = try tokenOrErr;
+      else null;
+    const token = try maybeToken orelse return null;
     self.index += token.str.len;
     return token;
   }
 
-  /// TODO: add checking in debug mode that the token placed back is correct
-  fn putBack(self: *ParseContext, token: Token) void {
-    self.index -= token.str.len;
-    if (self.index < 0) @panic("you can't put back a token you didn't get");
-    //putBackSkips();
+  /// consume a token, if it is not of the given tag, put it back
+  fn try_consume_tok_type(self: *ParseContext, tok_type: std.meta.Tag(Tok)) TokenizeErr!?Token {
+    const start = self.index;
+    const tok = (try self.consume_tok()) orelse return null;
+    if (tok.tok == tok_type) {
+      return tok;
+    } else {
+      self.reset(start);
+      return null;
+    }
+  }
+
+  fn reset(self: *ParseContext, index: usize) void {
+    self.index = index;
   }
 };
 
@@ -161,26 +175,28 @@ const Ident = struct {
   name: []const u8,
   // TODO: come up with a way to enforce the concept/comptime-interface of "Node"
   // maybe just a comptime function that ensures it, or one that adds it and generates a constructor for you
-  //srcSlice: []const u8,
+  srcSlice: []const u8,
 
   // FIXME: srcSlice is not always the name! once I added delimiter parsing, identifiers in nodelang can be `'` delimited which
   // is not in the name but is in the srcSlice
   pub fn new(name: []const u8) Ident { return Ident{.name=name }; } //.srcSlice=name };
 
-  /// parses an Ident out of the context, null if it fails
-  fn parse(pctx: *ParseContext) ?Ident {
-    const maybe_tok = pctx.consume_tok();
-    if (maybe_tok) |tok| {
-      if (tok.tok == Tok.ident) { return Ident{.name = tok.str}; }
-      else pctx.putBack(tok);
-    } else |_| {}
-    return null;
+  /// tries to parse an Ident out of the context
+  fn parse(pctx: *ParseContext) ParseError!?Ident {
+    const start = pctx.index;
+    const tok = try pctx.consume_tok() orelse return null;
+    if (tok.tok == Tok.ident) {
+      return Ident{ .name = tok.str, .srcSlice = tok.str };
+    } else {
+      pctx.reset(start);
+      return null;
+    }
   }
 };
 
 test "parse Ident" {
   var pctx = ParseContext.new("hello const");
-  const parsed = Ident.parse(&pctx);
+  const parsed = try Ident.parse(&pctx);
   try t.expect(parsed != null);
   try t.expectEqualStrings("hello", parsed.?.name);
 }
@@ -210,9 +226,10 @@ fn TokOrNodeTypesToTuple(comptime tokOrNodeTypes: anytype) type {
   });
 }
 
+// FIXME: doesn't work due to a compiler error
 /// parse several tokens, putting them all back if failing
 fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!?TokOrNodeTypesToTuple(tokOrNodeTypes) {
-  var result: TokOrNodeTypesToTuple(tokOrNodeTypes) = undefined;
+  var result: ?TokOrNodeTypesToTuple(tokOrNodeTypes) = undefined;
   inline for (tokOrNodeTypes) |tokOrNodeType, i| {
     const isParseable = @TypeOf(tokOrNodeType) == type;
     const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?;
@@ -231,7 +248,7 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
       };
 
     if (maybe_consumed) |consumed| {
-      result[i] = consumed;
+      result.?[i] = consumed;
     } else  {
       // this could probably be done more elegantly by adding a local function and returning a real error here
       put_back_index_cuz_err = i;
@@ -246,7 +263,8 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
         //pctx.put_back(result[j]);
       }
 
-      return null;
+      result = null;
+      break;
     }
   }
   return result;
@@ -254,17 +272,26 @@ fn parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!
 
 const Decl = struct {
   ident: Ident,
-  //srcSlice: []const u8,
+  srcSlice: []const u8,
 
-  fn parse(pctx: *ParseContext) ?Decl {
-    //var srcStart = pctx.index;
-    if (parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch null) |toks| {
-      const ident = toks[1];
-      //const srcEnd = pctx.index;
-      return Decl{ .ident=ident };// .srcSlice=pctx.source[srcStart..srcEnd] };
-    } else {
-      return null;
-    }
+  fn parse(_pctx: *ParseContext) ?Decl {
+    //if (parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch null) |toks| {
+
+    const result = (struct {
+      fn impl(pctx: *ParseContext) !?Decl {
+        const srcStart = pctx.index;
+        errdefer pctx.reset(srcStart);
+        _  = try pctx.try_consume_tok_type(.@"const") orelse return error.PutBack;
+        const ident = try Ident.parse(pctx) orelse return error.PutBack;
+        _ = try pctx.try_consume_tok_type(.colon) orelse return error.PutBack;
+        _ = try pctx.try_consume_tok_type(.integer) orelse return error.PutBack;
+
+        const srcEnd = pctx.index;
+        return Decl{ .ident=ident, .srcSlice=pctx.slice(srcStart, srcEnd) };
+      }
+    }).impl(_pctx);
+
+    return result catch null;
   }
 };
 
