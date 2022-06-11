@@ -66,7 +66,7 @@ pub const ParseContext = struct {
   // TODO: allow starting and ending single quotes with escapes
   /// try to get the next token as if it's an identifier, assume unknown token if we fail
   /// - assumes whitespace has been skipped
-  fn try_next_tok_keyword_or_ident(self: *ParseContext) TokenizeErr!?Token {
+  fn try_next_tok_keyword_or_ident(self: *ParseContext) TokenizeErr!Token {
     var i: usize = 1; // skip first char since it is assumed to be an identifier start
     var src: []const u8 = "";
     while (self.nth(i)) |c| {
@@ -145,11 +145,11 @@ pub const ParseContext = struct {
       else if (std.mem.startsWith(u8, ":", self.remaining_src())) return Token.new(Tok.colon, self.remaining_src()[0..1])
       else if (std.mem.startsWith(u8, "-", self.remaining_src())) return Token.new(Tok.minus, self.remaining_src()[0..1])
       else if (switch (self.remaining_src()[0]) { 'a'...'z', 'A'...'Z', '_' => true, else => false })
-                                                                  self.try_next_tok_keyword_or_ident()
+        try self.try_next_tok_keyword_or_ident()
       else if (switch (self.remaining_src()[0]) { '0'...'9' => true, else => false })
-                                                                  self.try_next_tok_number()
+        try self.try_next_tok_number()
       else null;
-    const token = try maybeToken orelse return null;
+    const token = (try maybeToken) orelse return null;
     self.index += token.str.len;
     return token;
   }
@@ -184,7 +184,7 @@ const Ident = struct {
   /// tries to parse an Ident out of the context
   fn parse(pctx: *ParseContext) ParseError!?Ident {
     const start = pctx.index;
-    const tok = try pctx.consume_tok() orelse return null;
+    const tok = (try pctx.consume_tok()) orelse return null;
     if (tok.tok == Tok.ident) {
       return Ident{ .name = tok.str, .srcSlice = tok.str };
     } else {
@@ -281,10 +281,10 @@ const Decl = struct {
       fn impl(pctx: *ParseContext) !?Decl {
         const srcStart = pctx.index;
         errdefer pctx.reset(srcStart);
-        _  = try pctx.try_consume_tok_type(.@"const") orelse return error.PutBack;
-        const ident = try Ident.parse(pctx) orelse return error.PutBack;
-        _ = try pctx.try_consume_tok_type(.colon) orelse return error.PutBack;
-        _ = try pctx.try_consume_tok_type(.integer) orelse return error.PutBack;
+        _  = (try pctx.try_consume_tok_type(.@"const")) orelse return error.PutBack;
+        const ident = (try Ident.parse(pctx)) orelse return error.PutBack;
+        _ = (try pctx.try_consume_tok_type(.colon)) orelse return error.PutBack;
+        _ = (try pctx.try_consume_tok_type(.integer)) orelse return error.PutBack;
 
         const srcEnd = pctx.index;
         return Decl{ .ident=ident, .srcSlice=pctx.slice(srcStart, srcEnd) };
@@ -298,11 +298,8 @@ const Decl = struct {
 test "parse Decl" {
   var pctx = ParseContext.new("const x: Test = 5");
   const parsed = Decl.parse(&pctx);
-  //try t.expect(parsed != null);
-  _ = pctx;
-  _ = parsed;
-  // try t.expectEqualStrings("x", parsed.?.ident.name);
-  try t.expectEqualStrings("x", "x");
+  try t.expect(parsed != null);
+  try t.expectEqualStrings("x", parsed.?.ident.name);
 }
 
 pub const BinOp = union (enum) {
