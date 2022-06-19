@@ -42,7 +42,8 @@ Payload = Union[
   int,
   float,
   str,
-  bool
+  bool,
+  Type
 ]
 
 @dataclass(slots=True)

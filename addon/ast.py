@@ -182,7 +182,11 @@ class ConstDecl(Node):
     results: list[token.Token] = []
 
     # TODO: support Node types with parse methods, and parse any expression not just int
-    for nodeOrTokType in (token.Type.const, token.Type.ident, token.Type.colon, token.Type.ident, token.Type.int):
+    for nodeOrTokType in (token.Type.const,
+                          token.Type.ident,
+                          token.Type.colon,
+                          token.Type.ident,
+                          token.Type.int):
       parsed = pctx.try_consume_tok_type(nodeOrTokType)
       # TODO: create a zig-like _try function
       if parsed is None or isinstance(parsed, TokenizeErr):
@@ -190,7 +194,7 @@ class ConstDecl(Node):
         return
       results.append(parsed)
 
-    _, ident, _, _type_expr, val = results
+    _, ident, _, _type_expr, _, val = results
 
     ident = Ident(cast(token.Ident, ident.tok).name)
 
@@ -200,6 +204,13 @@ class ConstDecl(Node):
       None,
       # _type_expr # need to check the name against known types? (and parse full expressions)
     )
+
+class _TestConstDecl(unittest.TestCase):
+  def test_parse(self):
+    pctx = ParseContext("const x: Test = 5")
+    parsed = ConstDecl.parse(pctx)
+    self.assertIsNotNone(parsed)
+    self.assertEqual("x", parsed.name.name)
 
 @dataclass
 class StructAssignment(Node):

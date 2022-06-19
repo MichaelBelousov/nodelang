@@ -1,3 +1,6 @@
+"""
+"""
+#XXX: this is a lexer, parsing methods are in the ast...
 
 from dataclasses import dataclass
 from typing import TypeVar, Union, Optional
@@ -40,9 +43,11 @@ class ParseContext:
     try to get the next token as if it's an identifier, assume unknown token if we fail
     - assumes whitespace has been skipped
     """
-    i = 1; # skip first char since it is assumed to be an identifier start
+    i = 1
     src = ""
-    for c in self.remaining_src():
+    # skip first char since it is assumed to be an identifier start
+    while True:
+      c = self.remaining_src()[i]
       if c.isalnum() or c == '_':
         i += 1
       else:
@@ -50,7 +55,7 @@ class ParseContext:
         break
 
     if src == "const":
-      return Token("const", self.remaining_src()[:i])
+      return Token(token.Type.const, self.remaining_src()[:i])
     else:
       return Token(token.Ident(src), self.remaining_src()[:i])
 
@@ -93,8 +98,7 @@ class ParseContext:
         case ' ' | '\t' | '\n':
           self.index += 1
         case _:
-          break
-      return True
+          return True
     return False
 
   def consume_tok(self) -> ErrUnion[TokenizeErr, Optional[token.Token]]:
@@ -134,71 +138,3 @@ class ParseContext:
 
   def reset(self, index: int) -> None:
     self.index = index
-
-const Ident = struct {
-  name: []const u8,
-  // TODO: come up with a way to enforce the concept/comptime-interface of "Node"
-  // maybe just a comptime function that ensures it, or one that adds it and generates a constructor for you
-  srcSlice: []const u8,
-
-  // FIXME: srcSlice is not always the name! once I added delimiter parsing, identifiers in nodelang can be `'` delimited which
-  // is not in the name but is in the srcSlice
-  pub def new(name: []const u8) Ident { return Ident{.name=name }; } //.srcSlice=name }
-
-  /// tries to parse an Ident out of the context
-  def parse(pctx: *ParseContext) ParseError!?Ident {
-    const start = pctx.index
-    const tok = (try pctx.consume_tok()) orelse return null
-    if (tok.tok == Token.Type.ident) {
-      return Ident{ .name = tok.str, .srcSlice = tok.str }
-    } else {
-      pctx.reset(start)
-      return null
-    }
-  }
-}
-
-const Decl = struct {
-  ident: Ident,
-  srcSlice: []const u8,
-
-  def parse(_pctx: *ParseContext) ?Decl {
-    //if (parseMany(pctx, .{Token.Type.@"const", Ident, Token.Type.colon}) catch null) |toks| {
-
-    const srcStart = pctx.index
-    errdefer 
-    _  = (try pctx.try_consume_tok_type(.@"const")) orelse { pctx.reset(srcStart); return }
-    const ident = (try Ident.parse(pctx)) orelse { pctx.reset(srcStart); return }
-    _ = (try pctx.try_consume_tok_type(.colon)) orelse { pctx.reset(srcStart); return }
-    _ = (try pctx.try_consume_tok_type(.integer)) orelse { pctx.reset(srcStart); return }
-
-    const srcEnd = pctx.index
-    return Decl{ .ident=ident, .srcSlice=pctx.slice(srcStart, srcEnd) }
-
-    return result catch null
-  }
-}
-
-test "parse Decl" {
-  var pctx = ParseContext.new("const x: Test = 5")
-  const parsed = Decl.parse(&pctx)
-  try t.expect(parsed != null)
-  try t.expectEqualStrings("x", parsed.?.ident.name)
-}
-
-pub const BinOp = union (enum) {
-  add,
-  sub,
-  dot
-}
-
-pub const Node = union (enum) {
-  integer: i64,
-  float: f64,
-  @"bool": bool,
-  string: []const u8,
-  array: []const Node,
-  call: struct { func: []const u8, args: []const Node },
-  varRef: []const u8,
-  binOp: struct { op: BinOp, left: *const Node, right: *const Node },
-}
