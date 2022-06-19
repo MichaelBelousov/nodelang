@@ -186,6 +186,7 @@ class ConstDecl(Node):
                           token.Type.ident,
                           token.Type.colon,
                           token.Type.ident,
+                          token.Type.eq,
                           token.Type.int):
       parsed = pctx.try_consume_tok_type(nodeOrTokType)
       # TODO: create a zig-like _try function

@@ -17,10 +17,10 @@ class TokenizeErr(Enum):
 class _ParseNonTokenizeErr(Enum):
   pass
 
-ParseError = Union[TokenizeErr, _ParseNonTokenizeErr]
+ParseError = TokenizeErr | _ParseNonTokenizeErr
 
 T = TypeVar('T')
-MaybeParsed = ErrUnion[ParseError, Optional[T]]
+MaybeParsed = ParseError | Optional[T]
 
 @dataclass
 class ParseContext:
@@ -67,7 +67,7 @@ class ParseContext:
       """
       # FIXME: this is bad
       # TODO: roll my own parser to not have redundant logic
-      has_prefix_char = self.remaining_src()[1].isalpha() and self.remaining_src()[2].isdigit()
+      has_prefix_char = self.remaining_src()[1:2].isalpha() and self.remaining_src()[2:3].isdigit()
       had_point = False
       tok_end = 0
       for i, c in enumerate(self.remaining_src()): 
@@ -80,7 +80,7 @@ class ParseContext:
           tok_end = i
           break
       
-      src = self.remaining_src()[0:tok_end]
+      src = self.remaining_src()[0:tok_end+1]
       parser = float if had_point else int
       try:
         val = parser(src)
@@ -115,6 +115,7 @@ class ParseContext:
       ) if self.remaining_src().startswith("^")
       else Token(token.Type.plus, _1) if self.remaining_src().startswith("+")
       else Token(token.Type.colon, _1) if self.remaining_src().startswith(":")
+      else Token(token.Type.eq, _1) if self.remaining_src().startswith("=")
       else Token(token.Type.minus, _1) if self.remaining_src().startswith("-")
       else self.try_next_tok_keyword_or_ident() if _1 == '_' or _1.isalpha()
       else self.try_next_tok_number() if _1.isdigit()
@@ -130,7 +131,7 @@ class ParseContext:
     tok = self.consume_tok()
     if isinstance(tok, TokenizeErr) or tok is None:
       return tok
-    if tok.tok == tok_type:
+    if token.Type.isinstance(tok, tok_type):
       return tok
     else:
       self.reset(start)

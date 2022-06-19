@@ -1,8 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Union
-
-__package__ = "addon"
 
 @dataclass(slots=True)
 class Ident:
@@ -31,20 +28,18 @@ class Type(Enum):
   ampAmp = 20
   pipePipe = 21
   ident = type[Ident]
-  int = type[int],
-  float = type[float],
-  str= type[str],
-  bool = type[bool],
+  int = type[int]
+  float = type[float]
+  str = type[str]
+  bool = type[bool]
+
+  @staticmethod
+  def isinstance(token: "Token", type_: "Type") -> "bool":
+    return token.tok == type_ or type[type(token.tok)] == type_.value
+
 
 # this is really a type-tagged union, will probably need to extend with class types later once there is some overlap
-Payload = Union[
-  Ident,
-  int,
-  float,
-  str,
-  bool,
-  Type
-]
+Payload = Ident | int | float | str | bool | Type
 
 @dataclass(slots=True)
 class Token:
