@@ -2,11 +2,15 @@
 Ast of nodelang for use in blender (and prototype)
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import typing
-from typing import Dict, List, Optional, ClassVar
+from typing import cast, Dict, List, Optional, ClassVar
 import re
+import unittest
+
+from .parser import MaybeParsed, ParseContext, TokenizeErr
+from . import token
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
 primitive_types_raw = []
@@ -33,19 +37,45 @@ class Node(ABC):
 
   NOTE: slots are not allowed since these need to be fully mutable, some upstream consumers
   [ab]use that precondition to dynamically restructure the ast while building it
+  For performance might want to use slots and include a higher level referencing node that
+  can have its type changed.
   """
+  start: int
+  end: int
+  src: str
+
+  def slice(self) -> str:
+    return self.src[self.start:self.end]
+
+  @abstractmethod
   def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
-    raise NotImplementedError()
+    pass
 
 @dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
   quotes_not_needed_pattern: ClassVar[re.Pattern[str]] = re.compile(r'[a-zA-Z]\w*')
+
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     # TODO: escape quotes and space and nonprintables
     quotes_not_needed = Ident.quotes_not_needed_pattern.fullmatch(self.name) is not None
     if quotes_not_needed: return self.name
     else: return f"'{self.name}'"
+  
+  @staticmethod
+  def parse(pctx: ParseContext) -> MaybeParsed["Ident"]:
+    tok = pctx.try_consume_tok_type()
+    # TODO: create a zig-like _try function
+    if tok is None or isinstance(tok, TokenizeErr):
+      return tok
+    return Ident(cast(tok, token.Ident).name)
+
+class _TestIdent(unittest.TestCase):
+  def test_parse(self):
+    pctx = ParseContext("hello const")
+    parsed = Ident.parse(pctx)
+    self.assertIsNotNone(parsed)
+    self.assertEqual("hello", parsed.name)
 
 @dataclass
 class _Named:
@@ -145,6 +175,28 @@ class ConstDecl(Node):
       + (f': {self.serialize_type(c)}' if self.type else '')
       + f' = {self.value.serialize(c)}'
     )
+
+  @staticmethod
+  def parse(pctx: ParseContext) -> MaybeParsed[Ident]:
+    start = pctx.index
+    const = pctx.try_consume_tok_type(token.Type.const)
+    # blergh going to be repeating this a lot...
+    # TODO: create a zig-like _try function
+    if const is None or isinstance(const, TokenizeErr):
+      pctx.reset(start); return
+
+    ident = pctx.try_consume_tok_type(token.Type.ident)
+    if ident is None or isinstance(ident, TokenizeErr):
+      pctx.reset(start); return
+
+    colon = pctx.try_consume_tok_type(token.Type.colon)
+    if colon is None or isinstance(colon, TokenizeErr):
+      pctx.reset(start); return
+
+    # TODO: run generic expression parser here
+    integer = pctx.try_consume_tok_type(int)
+    if integer is None or isinstance(colon, TokenizeErr):
+      pctx.reset(start); return
 
 @dataclass
 class StructAssignment(Node):

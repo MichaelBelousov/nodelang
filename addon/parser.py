@@ -1,72 +1,21 @@
 
 from dataclasses import dataclass
-from typing import Literal, Union, Optional
+from typing import TypeVar, Union, Optional
 from enum import Enum
+from . import token
+from .token import Token
 
+# cuz I'll probably convert back to zig once stage2 compiler is more stable
 ErrUnion = Union
-
-class TokenType:
-  ident = type("ident", (), {})
-  lBrack = type("lBrack", (), {})
-  rBrack = type("rBrack", (), {})
-  lPar = type("lPar", (), {})
-  rPar = type("rPar", (), {})
-  const = type("const", (), {})
-  dot = type("dot", (), {})
-  eq = type("eq", (), {})
-  colon = type("colon", (), {})
-  plus = type("plus", (), {})
-  minus = type("minus", (), {})
-  star = type("star", (), {})
-  fSlash = type("fSlash", (), {})
-  caret = type("caret", (), {})
-  caretCaret = type("caretCaret", (), {})
-  caretFSlash = type("caretFSlash", (), {})
-  starStar = type("starStar", (), {})
-  amp = type("amp", (), {})
-  pipe = type("pipe", (), {})
-  ampAmp = type("ampAmp", (), {})
-  pipePipe = type("pipePipe", (), {})
-
-TokenPayload = Union[
-  int,
-  float,
-  str,
-  # TODO: need these to have optional payloads like a tagged union
-  TokenType.ident,
-  TokenType.lBrack,
-  TokenType.rBrack,
-  TokenType.lPar,
-  TokenType.rPar,
-  TokenType.const,
-  TokenType.dot,
-  TokenType.eq,
-  TokenType.colon,
-  TokenType.plus,
-  TokenType.minus,
-  TokenType.star,
-  TokenType.fSlash,
-  TokenType.caret,
-  TokenType.caretCaret,
-  TokenType.caretFSlash,
-  TokenType.starStar,
-  TokenType.amp,
-  TokenType.pipe,
-  TokenType.ampAmp,
-  TokenType.pipePipe
-]
-
-@dataclass(slots=True)
-class Token:
-  tok: TokenPayload
-  slice: str
-
 
 class TokenizeErr(Enum):
   UnknownTok = 0
 
 class ParseError(Enum):
-  pass
+  UnknownTok = TokenizeErr.UnknownTok
+
+T = TypeVar('T')
+MaybeParsed = ErrUnion[ParseError, Optional[T]]
 
 @dataclass
 class ParseContext:
@@ -84,7 +33,7 @@ class ParseContext:
     return self.remaining_src()[n] if n < len(self.remaining_src()) else None
 
   # TODO: allow starting and ending single quotes with escapes
-  def try_next_tok_keyword_or_ident(self) -> ErrUnion[TokenizeErr, Token]:
+  def try_next_tok_keyword_or_ident(self) -> ErrUnion[TokenizeErr, token.Token]:
     """
     try to get the next token as if it's an identifier, assume unknown token if we fail
     - assumes whitespace has been skipped
@@ -101,9 +50,9 @@ class ParseContext:
     if src == "const":
       return Token("const", self.remaining_src()[:i])
     else:
-      return Token(TokenType.ident, self.remaining_src()[:i])
+      return Token(token.Ident(src), self.remaining_src()[:i])
 
-  def try_next_tok_number(self) -> ErrUnion[TokenizeErr, Token]:
+  def try_next_tok_number(self) -> ErrUnion[TokenizeErr, token.Token]:
       """
       try to get the next token as if it's a number, assume unknown token if we fail
        - assumes whitespace has been skipped
@@ -146,42 +95,43 @@ class ParseContext:
       return True
     return False
 
-  def consume_tok(self) -> ErrUnion[TokenizeErr, Optional[Token]]:
+  def consume_tok(self) -> ErrUnion[TokenizeErr, Optional[token.Token]]:
     if not self.skipAvailable(): return None
-    maybeToken: ErrUnion[TokenizeErr, Optional[Token]] =
-      if (std.mem.startsWith(u8, "^", self.remaining_src())) (
-        if (std.mem.startsWith(u8, "^^", self.remaining_src())) Token.new(Tok.caretCaret, self.remaining_src()[0..2])
-        else if (std.mem.startsWith(u8, "^/", self.remaining_src())) Token.new(Tok.caretFSlash, self.remaining_src()[0..2])
-        else Token.new(Tok.caret, self.remaining_src()[0..1])
-      )
-      else if (std.mem.startsWith(u8, "+", self.remaining_src())) return Token.new(Tok.plus, self.remaining_src()[0..1])
-      else if (std.mem.startsWith(u8, ":", self.remaining_src())) return Token.new(Tok.colon, self.remaining_src()[0..1])
-      else if (std.mem.startsWith(u8, "-", self.remaining_src())) return Token.new(Tok.minus, self.remaining_src()[0..1])
-      else if (switch (self.remaining_src()[0]) { 'a'...'z', 'A'...'Z', '_' => true, else => false })
-        try self.try_next_tok_keyword_or_ident()
-      else if (switch (self.remaining_src()[0]) { '0'...'9' => true, else => false })
-        try self.try_next_tok_number()
-      else null
-    const token = (try maybeToken) orelse return null
-    self.index += token.str.len
-    return token
+    _1 = self.remaining_src()[0:1]
+    _2 = self.remaining_src()[0:2]
+    maybeToken: ErrUnion[TokenizeErr, Optional[Token]] = (
+      (
+        Token(token.Type.caretCaret, _2)
+          if self.remaining_src().startswith("^^")
+        else Token(token.Type.caretFSlash, _2)
+          if self.remaining_src().startswith("^/") 
+        else Token(token.Type.caret, _1)
+      ) if self.remaining_src().startswith("^")
+      else Token(token.Type.plus, _1) if self.remaining_src().startswith("+")
+      else Token(token.Type.colon, _1) if self.remaining_src().startswith(":")
+      else Token(token.Type.minus, _1) if self.remaining_src().startswith("-")
+      else self.try_next_tok_keyword_or_ident() if _1 == '_' or _1.isalpha()
+      else self.try_next_tok_number() if _1.isdigit()
+      else None
+    )
+    if not isinstance(maybeToken, TokenizeErr) and maybeToken is not None:
+      self.index += len(maybeToken.slice)
+    return maybeToken
 
-  def try_consume_tok_type(self, tok_type: TokenType) -> ErrUnion[TokenizeErr, Optional[Token]]:
+  def try_consume_tok_type(self, tok_type: token.Payload) -> ErrUnion[TokenizeErr, Optional[Token]]:
     """consume a token, if it is not of the given tag, put it back"""
-    const start = self.index
-    const tok = (try self.consume_tok()) orelse return null
-    if (tok.tok == tok_type) {
+    start = self.index
+    tok = self.consume_tok()
+    if isinstance(tok, TokenizeErr) or tok is None:
       return tok
-    } else {
+    if tok.tok == tok_type:
+      return tok
+    else:
       self.reset(start)
-      return null
-    }
-  
+      return None
 
-  def reset(self: *ParseContext, index: usize) void {
+  def reset(self, index: int) -> None:
     self.index = index
-  }
-}
 
 const Ident = struct {
   name: []const u8,
@@ -197,7 +147,7 @@ const Ident = struct {
   def parse(pctx: *ParseContext) ParseError!?Ident {
     const start = pctx.index
     const tok = (try pctx.consume_tok()) orelse return null
-    if (tok.tok == Tok.ident) {
+    if (tok.tok == Token.Type.ident) {
       return Ident{ .name = tok.str, .srcSlice = tok.str }
     } else {
       pctx.reset(start)
@@ -206,102 +156,22 @@ const Ident = struct {
   }
 }
 
-test "parse Ident" {
-  var pctx = ParseContext.new("hello const")
-  const parsed = try Ident.parse(&pctx)
-  try t.expect(parsed != null)
-  try t.expectEqualStrings("hello", parsed.?.name)
-}
-
-def TokOrNodeTypesToTuple(comptime tokOrNodeTypes: anytype) type {
-  var fields: [tokOrNodeTypes.len]std.builtin.TypeInfo.StructField = undefined
-  for (tokOrNodeTypes) |tokOrNodeType, i| {
-    const isParseable = @TypeOf(tokOrNodeType) == type
-    //@compileLog("tokOrNodeType = ", tokOrNodeType)
-    //const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?
-    fields[i] = std.builtin.TypeInfo.StructField{
-      .name = std.fmt.comptimePrint("{}", .{i}),
-      .field_type = if (isParseable) tokOrNodeType else Token,
-      .default_value = null,
-      .is_comptime = false,
-      .alignment = 8,
-    }
-  }
-
-  return @Type(std.builtin.TypeInfo{
-    .Struct = .{
-      .layout = std.builtin.TypeInfo.ContainerLayout.Auto,
-      .fields = &fields,
-      .decls = &.{},
-      .is_tuple = true,
-    }
-  })
-}
-
-// FIXME: doesn't work due to a compiler error
-/// parse several tokens, putting them all back if failing
-def parseMany(pctx: *ParseContext, comptime tokOrNodeTypes: anytype) TokenizeErr!?TokOrNodeTypesToTuple(tokOrNodeTypes) {
-  var result: ?TokOrNodeTypesToTuple(tokOrNodeTypes) = undefined
-  inline for (tokOrNodeTypes) |tokOrNodeType, i| {
-    const isParseable = @TypeOf(tokOrNodeType) == type
-    const isToken = @TypeOf(tokOrNodeType) == @typeInfo(Tok).Union.tag_type.?
-    var put_back_index_cuz_err: ?usize = null
-
-    const maybe_consumed =
-      if (isParseable)
-        tokOrNodeType.parse(pctx)
-      else if (isToken) _: {
-        // FIXME: eof is treated as an error here... which is wrong, see notes on TokenizeErr.Eof above
-        const tok = try pctx.consume_tok()
-        break :_ if (tok.tok == tokOrNodeType) tok else null
-      } else {
-        @compileLog("bad tokOrNodeType = ", @TypeOf(tokOrNodeType))
-        @compileError("parseMany list included something that was neither a token nor a parseable struct")
-      }
-
-    if (maybe_consumed) |consumed| {
-      result.?[i] = consumed
-    } else  {
-      // this could probably be done more elegantly by adding a local function and returning a real error here
-      put_back_index_cuz_err = i
-      break
-    }
-
-    if (put_back_index_cuz_err) |put_back_index| {
-      // there was an error, clean up and return early
-      var j: isize = @intCast(isize, put_back_index)
-      while (j > 0) : (j -= 1) {
-        // FIXME
-        //pctx.put_back(result[j])
-      }
-
-      result = null
-      break
-    }
-  }
-  return result
-}
-
 const Decl = struct {
   ident: Ident,
   srcSlice: []const u8,
 
   def parse(_pctx: *ParseContext) ?Decl {
-    //if (parseMany(pctx, .{Tok.@"const", Ident, Tok.colon}) catch null) |toks| {
+    //if (parseMany(pctx, .{Token.Type.@"const", Ident, Token.Type.colon}) catch null) |toks| {
 
-    const result = (struct {
-      def impl(pctx: *ParseContext) !?Decl {
-        const srcStart = pctx.index
-        errdefer pctx.reset(srcStart)
-        _  = (try pctx.try_consume_tok_type(.@"const")) orelse return error.PutBack
-        const ident = (try Ident.parse(pctx)) orelse return error.PutBack
-        _ = (try pctx.try_consume_tok_type(.colon)) orelse return error.PutBack
-        _ = (try pctx.try_consume_tok_type(.integer)) orelse return error.PutBack
+    const srcStart = pctx.index
+    errdefer 
+    _  = (try pctx.try_consume_tok_type(.@"const")) orelse { pctx.reset(srcStart); return }
+    const ident = (try Ident.parse(pctx)) orelse { pctx.reset(srcStart); return }
+    _ = (try pctx.try_consume_tok_type(.colon)) orelse { pctx.reset(srcStart); return }
+    _ = (try pctx.try_consume_tok_type(.integer)) orelse { pctx.reset(srcStart); return }
 
-        const srcEnd = pctx.index
-        return Decl{ .ident=ident, .srcSlice=pctx.slice(srcStart, srcEnd) }
-      }
-    }).impl(_pctx)
+    const srcEnd = pctx.index
+    return Decl{ .ident=ident, .srcSlice=pctx.slice(srcStart, srcEnd) }
 
     return result catch null
   }
