@@ -9,7 +9,7 @@ from typing import cast, Dict, List, Optional, ClassVar
 import re
 import unittest
 
-from .parser import MaybeParsed, ParseContext, TokenizeErr
+from .parser import MaybeParsed, ParseContext, ParseError, TokenizeErr
 from . import token
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
@@ -64,11 +64,11 @@ class Ident(Node):
   
   @staticmethod
   def parse(pctx: ParseContext) -> MaybeParsed["Ident"]:
-    tok = pctx.try_consume_tok_type()
+    tok = pctx.try_consume_tok_type(token.Type.ident)
     # TODO: create a zig-like _try function
-    if tok is None or isinstance(tok, TokenizeErr):
+    if tok is None or isinstance(tok, ParseError):
       return tok
-    return Ident(cast(tok, token.Ident).name)
+    return Ident(cast(token.Ident, tok.tok).name)
 
 class _TestIdent(unittest.TestCase):
   def test_parse(self):
@@ -177,26 +177,29 @@ class ConstDecl(Node):
     )
 
   @staticmethod
-  def parse(pctx: ParseContext) -> MaybeParsed[Ident]:
+  def parse(pctx: ParseContext) -> MaybeParsed["ConstDecl"]:
     start = pctx.index
-    const = pctx.try_consume_tok_type(token.Type.const)
-    # blergh going to be repeating this a lot...
-    # TODO: create a zig-like _try function
-    if const is None or isinstance(const, TokenizeErr):
-      pctx.reset(start); return
+    results: list[token.Token] = []
 
-    ident = pctx.try_consume_tok_type(token.Type.ident)
-    if ident is None or isinstance(ident, TokenizeErr):
-      pctx.reset(start); return
+    # TODO: support Node types with parse methods, and parse any expression not just int
+    for nodeOrTokType in (token.Type.const, token.Type.ident, token.Type.colon, token.Type.ident, token.Type.int):
+      parsed = pctx.try_consume_tok_type(nodeOrTokType)
+      # TODO: create a zig-like _try function
+      if parsed is None or isinstance(parsed, TokenizeErr):
+        pctx.reset(start)
+        return
+      results.append(parsed)
 
-    colon = pctx.try_consume_tok_type(token.Type.colon)
-    if colon is None or isinstance(colon, TokenizeErr):
-      pctx.reset(start); return
+    _, ident, _, _type_expr, val = results
 
-    # TODO: run generic expression parser here
-    integer = pctx.try_consume_tok_type(int)
-    if integer is None or isinstance(colon, TokenizeErr):
-      pctx.reset(start); return
+    ident = Ident(cast(token.Ident, ident.tok).name)
+
+    return ConstDecl(
+      ident,
+      Literal(cast(int, val)),
+      None,
+      # _type_expr # need to check the name against known types? (and parse full expressions)
+    )
 
 @dataclass
 class StructAssignment(Node):

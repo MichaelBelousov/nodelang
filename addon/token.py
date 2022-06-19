@@ -31,16 +31,21 @@ class Type(Enum):
   ampAmp = 20
   pipePipe = 21
   ident = type[Ident]
+  int = type[int],
+  float = type[float],
+  str= type[str],
+  bool = type[bool],
 
 # this is really a type-tagged union, will probably need to extend with class types later once there is some overlap
 Payload = Union[
-  type[int],
-  type[float],
-  type[str],
-  type[bool],
-  Type,
+  Ident,
+  int,
+  float,
+  str,
+  bool
 ]
 
+@dataclass(slots=True)
 class Token:
   tok: Payload
   slice: str

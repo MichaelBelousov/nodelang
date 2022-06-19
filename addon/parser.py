@@ -11,8 +11,10 @@ ErrUnion = Union
 class TokenizeErr(Enum):
   UnknownTok = 0
 
-class ParseError(Enum):
-  UnknownTok = TokenizeErr.UnknownTok
+class _ParseNonTokenizeErr(Enum):
+  pass
+
+ParseError = Union[TokenizeErr, _ParseNonTokenizeErr]
 
 T = TypeVar('T')
 MaybeParsed = ErrUnion[ParseError, Optional[T]]
@@ -52,7 +54,7 @@ class ParseContext:
     else:
       return Token(token.Ident(src), self.remaining_src()[:i])
 
-  def try_next_tok_number(self) -> ErrUnion[TokenizeErr, token.Token]:
+  def try_next_tok_number(self) -> ErrUnion[TokenizeErr, Token]:
       """
       try to get the next token as if it's a number, assume unknown token if we fail
        - assumes whitespace has been skipped
@@ -118,7 +120,7 @@ class ParseContext:
       self.index += len(maybeToken.slice)
     return maybeToken
 
-  def try_consume_tok_type(self, tok_type: token.Payload) -> ErrUnion[TokenizeErr, Optional[Token]]:
+  def try_consume_tok_type(self, tok_type: token.Type) -> ErrUnion[TokenizeErr, Optional[Token]]:
     """consume a token, if it is not of the given tag, put it back"""
     start = self.index
     tok = self.consume_tok()
