@@ -14,10 +14,12 @@ ErrUnion = Union
 class TokenizeErr(Enum):
   UnknownTok = 0
 
-class _ParseNonTokenizeErr(Enum):
-  pass
+class ParseNonLexError(Enum):
+  # I should probably just go with rust at this point...
+  UnexpectedToken = 1 # TODO: this should be a tagged union with payload of the error...?
+  UnexpectedEof = 2
 
-ParseError = TokenizeErr | _ParseNonTokenizeErr
+ParseError = TokenizeErr | ParseNonLexError
 
 T = TypeVar('T')
 MaybeParsed = ParseError | Optional[T]

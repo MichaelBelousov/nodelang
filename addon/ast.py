@@ -5,11 +5,11 @@ Ast of nodelang for use in blender (and prototype)
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import typing
-from typing import cast, Dict, List, Optional, ClassVar
+from typing import Any, Mapping, cast, Dict, List, Optional, ClassVar
 import re
 import unittest
 
-from .parser import MaybeParsed, ParseContext, ParseError, TokenizeErr
+from .parser import MaybeParsed, ParseContext, ParseError, ParseNonLexError, TokenizeErr
 from . import token
 
 # FIXME: in python3.11 add a primitive_types_raw list and unpack it into the Literal type below
@@ -51,6 +51,14 @@ class Node(ABC):
   def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
     pass
 
+  @staticmethod
+  def hardFinishParse(pctx: ParseContext, **ctx: Any) -> ParseError | "Node":
+    """
+    Parse after consuming enough tokens to unambiguously expect the AST node type.
+    The amount of already consumed tokens is dependent upon the AST node type.
+    """
+    raise NotImplementedError()
+
 @dataclass(unsafe_hash=True)
 class Ident(Node):
   name: str
@@ -69,6 +77,7 @@ class Ident(Node):
     if tok is None or isinstance(tok, ParseError):
       return tok
     return Ident(cast(token.Ident, tok.tok).name)
+
 
 class _TestIdent(unittest.TestCase):
   def test_parse(self):
@@ -144,9 +153,45 @@ class Call(Node, Named):
       nl if arg_per_line else ''
     })'''
 
+
 @dataclass
 class BinOp(Node):
-  op: typing.Literal['+', '-', '*', '/', '^', '^^', '^/', '**', '&', '|', '&&', '||']
+  Types = typing.Literal['+', '-', '*', '/', '^', '^^', '^/', '**', '&', '|', '&&', '||']
+
+  tokens: ClassVar[Mapping[Types, token.Type]] = {
+    '|': token.Type.pipe,
+    '||': token.Type.pipePipe,
+    '&&': token.Type.ampAmp,
+    '&': token.Type.amp,
+    '+': token.Type.plus,
+    '-': token.Type.minus,
+    '*': token.Type.star,
+    '/': token.Type.fSlash,
+    '^': token.Type.caret,
+    '**': token.Type.starStar,
+    '^^': token.Type.caretCaret,
+    '^/': token.Type.caretFSlash,
+  }
+
+  _tokenList = tuple(tokens.values())
+
+  precedences: ClassVar[Mapping[Types, int]] = {
+    # '<' comparison will lower
+    '|': 1,
+    '||': 1,
+    '&&': 2,
+    '&': 2,
+    '+': 3,
+    '-': 4,
+    '*': 5,
+    '/': 6,
+    '^': 7,
+    '**': 8,
+    '^^': 8,
+    '^/': 9,
+  }
+
+  op: Types
   left: Node
   right: Node
 
@@ -154,6 +199,20 @@ class BinOp(Node):
   # TODO: print print using serialization context
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return f'({self.left.serialize(c)} {self.op} {self.right.serialize(c)})'
+
+  @staticmethod
+  def hardFinishParse(pctx: ParseContext, **ctx: Node) -> ParseError | "BinOp":
+    """expects that the parser has already consumed the left expression"""
+    left = ctx.get("left")
+    if left is None: raise RuntimeError("BinOp.hardFinishParse called without a `left: Node` kwarg")
+
+    while True:
+      tok = pctx.consume_tok()
+      if tok is None: return ParseNonLexError.UnexpectedEof
+      if isinstance(tok, TokenizeErr): return tok
+      if not token.Type.isinstance(tok, BinOp._tokenList): return ParseNonLexError.UnexpectedToken
+      prec = BinOp.precedences[cast(BinOp.Types, tok.slice)]
+
 
 
 @dataclass
@@ -242,3 +301,65 @@ Group = Namespace
 
 # The top level of the AST for a file
 Module = Namespace
+
+@dataclass
+class ParenGroup(Node):
+  inner: Node
+
+  def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
+    return f"({self.inner.serialize(c)})"
+
+  @staticmethod
+  def hardFinishParse(pctx: ParseContext) -> ParseError | "ParenGroup":
+    """assumes that an lPar `(` has already been parsed"""
+
+    expr = parseExpr(pctx)
+    if expr is None: return ParseNonLexError.UnexpectedToken
+    if isinstance(expr, ParseError): return expr
+
+    rPar = pctx.try_consume_tok_type(token.Type.rPar)
+    if isinstance(rPar, ParseError): return rPar
+    if rPar is None: return ParseNonLexError.UnexpectedToken
+
+    return ParenGroup(inner=expr)
+
+# TODO: move the following to the parser module with more separation
+
+Expr = Node
+PrimaryExpr = Node # TODO: should exclude binop
+
+def parsePrimary(pctx: ParseContext) -> MaybeParsed[PrimaryExpr]:
+  tok = pctx.consume_tok()
+  if tok is None or isinstance(tok, TokenizeErr): return tok
+
+  result = None
+  match tok.tok:
+    # looks like with a match expr I don't even really need Ident.parse
+    case token.Ident(name):
+      # FIXME: need to use lookahead here to determine if it is a call expression...
+      result = Ident(name)
+      before_next = pctx.index
+      next_tok = pctx.try_consume_tok_type(token.Type.lPar)
+      if isinstance(next_tok, TokenizeErr): return next_tok
+      elif next_tok is None:
+        pctx.reset(before_next)
+      else: # is lPar
+        args = CommaContext.parse(pctx)
+        result = Call(result, args)
+    case int(v) | float(v) | str(v) | bool(v):
+      result = Literal(v)
+    case token.Type.lPar:
+      ParenGroup.hardFinishParse(pctx)
+    case _:
+      # would be better to raise an error here...
+      return ParseNonLexError.UnexpectedToken
+
+  return result
+
+
+# TODO: maybe don't allow None return?
+# TODO: replace with Expr.parse?
+def parseExpr(pctx: ParseContext) -> MaybeParsed[Expr]:
+  left = parsePrimary(pctx)
+  if left is None or isinstance(left, ParseError): return left
+  BinOp.hardFinishParse(pctx)

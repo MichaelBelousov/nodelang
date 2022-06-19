@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Sequence
 
 @dataclass(slots=True)
 class Ident:
@@ -34,8 +35,10 @@ class Type(Enum):
   bool = type[bool]
 
   @staticmethod
-  def isinstance(token: "Token", type_: "Type") -> "bool":
-    return token.tok == type_ or type[type(token.tok)] == type_.value
+  def isinstance(token: "Token", type_: "Type" | Sequence["Type"]) -> "bool":
+    if not isinstance(type_, Sequence):
+      type_ = (type_,)
+    return any(token.tok == t or type[type(token.tok)] == t.value for t in type_)
 
 
 # this is really a type-tagged union, will probably need to extend with class types later once there is some overlap
