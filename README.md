@@ -111,3 +111,7 @@ Then, to get intellisense in vscode for blender, add following snippet to your `
   "python.analysis.extraPaths": ["/snap/blender/2106/3.1/scripts/modules"]
 }
 ```
+
+## docs
+
+[glossary](./GLOSSARY.md)
