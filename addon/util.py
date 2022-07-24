@@ -12,3 +12,8 @@ def freezeDict(dict: Dict[K, V]) -> FrozenDict[K, V]:
 class IgnoreDerefs:
   def __getattr__(self,_): return self
   def __getitem__(self,_): return self
+
+class Ansi:
+  class Colors:
+    white = "\033[0;37m"
+    yellow = "\033[0;33m"

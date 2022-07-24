@@ -4,6 +4,8 @@ blender addon for seamlessly integrating nodelang into your material workflow
 hopefully...
 """
 
+# TODO: switch from name addon to like "node_to_code"
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, TypedDict, cast
@@ -13,6 +15,7 @@ from addon.blender_util import isinstance_bpy_prop_array
 from . import ast
 from .types import blender_material_node_to_operation, blender_material_type_to_primitive
 from .bpy_wrap import bpy, in_blender
+from .util import Ansi
 
 class Referrer(TypedDict):
   node: bpy.types.ShaderNode
@@ -163,13 +166,12 @@ def analyze_material(material: bpy.types.Material) -> ast.Module:
   return module
 
 # TEMP: for prettier output in tests
-ansi_color_yellow = "\033[0;33m"
-ansi_color_white = "\033[0;37m"
-
+print("test")
 if in_blender:
+  print("test2")
   out_ast = analyze_material(bpy.data.materials["Test"])
-  print(ansi_color_yellow)
+  print(Ansi.Colors.yellow)
   print(out_ast.serialize())
-  print(ansi_color_white)
+  print(Ansi.Colors.white)
 
 # functions = bpy.data.node_groups['NodeGroup'].nodes['Group Input']

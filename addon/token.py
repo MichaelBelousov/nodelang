@@ -28,6 +28,7 @@ class Type(Enum):
   pipe = 19
   ampAmp = 20
   pipePipe = 21
+  comma = 22
   ident = type[Ident]
   int = type[int]
   float = type[float]

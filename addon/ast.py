@@ -5,7 +5,8 @@ Ast of nodelang for use in blender (and prototype)
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import typing
-from typing import Any, Mapping, cast, Dict, List, Optional, ClassVar
+from typing import Any, Mapping, cast, Dict, List, Optional, ClassVar, Union, Sequence
+from .bpy_wrap import bpy
 import re
 import unittest
 
@@ -52,12 +53,16 @@ class Node(ABC):
     pass
 
   @staticmethod
-  def hardFinishParse(pctx: ParseContext, **ctx: Any) -> ParseError | "Node":
+  def hardFinishParse(pctx: ParseContext, **ctx: Any) -> Union[ParseError, "Node"]:
     """
     Parse after consuming enough tokens to unambiguously expect the AST node type.
     The amount of already consumed tokens is dependent upon the AST node type.
     """
     raise NotImplementedError()
+
+  @abstractmethod
+  def to_blender_node_args(self) -> Sequence[Mapping[str, Any]]:
+    pass
 
 @dataclass(unsafe_hash=True)
 class Ident(Node):
@@ -97,7 +102,7 @@ class Named(_Named):
 @dataclass
 class Struct(Named):
   """A compound datatype"""
-  members: List[PrimitiveType | "Struct"] = field(default_factory=list)
+  members: List[Union[PrimitiveType, "Struct"]] = field(default_factory=list)
 
 Type = PrimitiveType | Struct
 
@@ -119,6 +124,22 @@ class Literal(Node):
       raise RuntimeError(f"unknown value '{val}' with type '{type(val)}' attempted to be used as a literal")
     return Literal(val)
 
+  def to_blender_node_args(self):
+    match self.val:
+      case str(val):
+        return { 'type': "ShaderNodeValue", value: self.val }
+      case int(val) | float(val):
+        return { 'type': "ShaderNodeValue", value: self.val }
+      case bool(val):
+        return { 'type': "ShaderNodeValue", value: int(self.val) }
+      case None:
+        return { 'type': "ShaderNodeValue", value: 0 }
+      # FIXME: handle vec4, also probably use tuple?
+      case [r, g, b, _a]:
+        return { 'type': "ShaderNodeRGB", value: tuple(self.val) }
+      case _:
+        raise TypeError(f'Literal with value "{self.val}" had unhandled type when converting to node')
+
 @dataclass
 class VarRef(Node, Named):
   derefs: List[str] = field(default_factory=list) # maybe convert this to binary dot operators
@@ -129,8 +150,17 @@ class VarRef(Node, Named):
     else:
       return f'{self.name.serialize(c)}.{".".join(self.derefs)}'
 
-# need this (yes)
-Expr = Literal | VarRef # | Call | BinOp
+
+class Expr(Node):
+  """non-instantiable static method class"""
+  # TODO: Expr = Literal | VarRef # | Call | BinOp
+  # TODO: maybe don't allow None return?
+  @staticmethod
+  def parse(pctx: ParseContext) -> MaybeParsed["Expr"]:
+    left = PrimaryExpr.parse(pctx)
+    if left is None or isinstance(left, ParseError): return left
+    return BinOp.hardFinishParse(pctx) or left
+
 
 @dataclass
 class NamedArg(Node, Named):
@@ -138,6 +168,7 @@ class NamedArg(Node, Named):
 
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return f".{self.name.serialize(c)}={self.val.serialize(c)}"
+
 
 @dataclass
 class Call(Node, Named):
@@ -192,27 +223,66 @@ class BinOp(Node):
   }
 
   op: Types
-  left: Node
-  right: Node
+  left: "Expr"
+  right: "Expr"
 
   # TODO: instead of always wrapping in `()` that should be a part of the AST not of the serialization
   # TODO: print print using serialization context
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return f'({self.left.serialize(c)} {self.op} {self.right.serialize(c)})'
 
+  # FIXME: this is not really a hardFinishParse since it can return just the left expr...
   @staticmethod
-  def hardFinishParse(pctx: ParseContext, **ctx: Node) -> ParseError | "BinOp":
+  def hardFinishParse(pctx: ParseContext, **ctx: Node) -> Union[ParseError, "Expr"]:
     """expects that the parser has already consumed the left expression"""
     left = ctx.get("left")
     if left is None: raise RuntimeError("BinOp.hardFinishParse called without a `left: Node` kwarg")
 
+    cur_prec = 0
     while True:
       tok = pctx.consume_tok()
       if tok is None: return ParseNonLexError.UnexpectedEof
       if isinstance(tok, TokenizeErr): return tok
+      # this looks wrong:
       if not token.Type.isinstance(tok, BinOp._tokenList): return ParseNonLexError.UnexpectedToken
       prec = BinOp.precedences[cast(BinOp.Types, tok.slice)]
+      if prec < cur_prec:
+        return cast(Expr, left)
+      right = PrimaryExpr.parse(pctx)
 
+      before_next_op = pctx.index
+      maybe_next_op = pctx.consume_tok()
+      if maybe_next_op is None: return ParseNonLexError.UnexpectedEof
+      if isinstance(maybe_next_op, TokenizeErr): return maybe_next_op
+      # this looks wrong:
+      if not token.Type.isinstance(maybe_next_op, BinOp._tokenList): return ParseNonLexError.UnexpectedToken
+      next_op = maybe_next_op
+      next_op_prec = BinOp.precedences[cast(BinOp.Types, next_op.slice)]
+      pctx.reset(before_next_op)
+
+      if prec < next_op_prec:
+        right = BinOp.hardFinishParse(pctx, left=right)
+
+  def to_blender_node_args(self):
+    return {
+      'type': "ShaderNodeMath",
+      'value': self.left,
+      'value': self.right,
+      operation: {
+        '|': 'BITWISEOR',
+        '||': 'OR',
+        '&&': 'AND',
+        '&': 'BITWISEAND',
+        '+': 'ADD',
+        '-': 'SUB',
+        '*': 'MUL',
+        '/': 'DIV',
+        '^': 'BITWISEXOR',
+        '**': 'EXP',
+        '^^': 'POW',
+        '^/': 'ROOT',
+      }[self.op]
+    }
 
 
 @dataclass
@@ -278,6 +348,7 @@ class StructAssignment(Node):
   field: Optional[str]
   value: Node
 
+
 @dataclass
 class Namespace(Node):
   # TODO: consider having it be a list of ConstDecl or Stmt
@@ -296,6 +367,9 @@ class Namespace(Node):
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return '\n'.join(d.serialize(c) for d in self.decls)
 
+  def to_blender_node_args(self):
+      return [d.to_blender_node_args for d in self.decls]
+
 # A group of declarationS
 Group = Namespace
 
@@ -310,10 +384,10 @@ class ParenGroup(Node):
     return f"({self.inner.serialize(c)})"
 
   @staticmethod
-  def hardFinishParse(pctx: ParseContext) -> ParseError | "ParenGroup":
+  def hardFinishParse(pctx: ParseContext) -> Union[ParseError, "ParenGroup"]:
     """assumes that an lPar `(` has already been parsed"""
 
-    expr = parseExpr(pctx)
+    expr = Expr.parse(pctx)
     if expr is None: return ParseNonLexError.UnexpectedToken
     if isinstance(expr, ParseError): return expr
 
@@ -323,43 +397,69 @@ class ParenGroup(Node):
 
     return ParenGroup(inner=expr)
 
+@dataclass
+class ArgExprList(Node):
+  exprs: list[NamedArg | Expr]
+
+  def serialize(self, c: SerializeCtx = SerializeCtx()) -> str:
+    return ", ".join(e.serialize(c) for e in self.exprs)
+
+  @staticmethod
+  def hardFinishParse(pctx: ParseContext) -> Union[ParseError, "ArgExprList"]:
+    """assumes the left parentheses has been parsed"""
+    maybe_immediate_rpar = pctx.try_consume_tok_type(token.Type.rPar)
+    if isinstance(maybe_immediate_rpar , TokenizeErr): return maybe_immediate_rpar
+    if maybe_immediate_rpar is not None:
+      return ArgExprList(exprs=[])
+
+    exprs: list[NamedArg | Expr] = []
+    while True:
+      # TODO: lookahead for named arg here
+      expr = Expr.parse(pctx)
+      if expr is None: return ParseNonLexError.UnexpectedToken
+      if isinstance(expr, ParseError): return expr
+      if expr is None: return ParseNonLexError.UnexpectedEof
+      exprs.append(expr)
+
+      tok = pctx.try_consume_tok_type(token.Type.rPar, token.Type.comma)
+      if isinstance(tok, TokenizeErr): return tok
+      if tok is None: return ParseNonLexError.UnexpectedEof
+      if token.Type.isinstance(tok, token.Type.rPar):
+        break
+
+    return ArgExprList(exprs)
+
 # TODO: move the following to the parser module with more separation
 
-Expr = Node
-PrimaryExpr = Node # TODO: should exclude binop
+class PrimaryExpr(Node): # TODO: should exclude binop
+  @staticmethod
+  def parse(pctx: ParseContext) -> MaybeParsed["PrimaryExpr"]:
+    tok = pctx.consume_tok()
+    if tok is None or isinstance(tok, TokenizeErr): return tok
 
-def parsePrimary(pctx: ParseContext) -> MaybeParsed[PrimaryExpr]:
-  tok = pctx.consume_tok()
-  if tok is None or isinstance(tok, TokenizeErr): return tok
+    result = None
+    match tok.tok:
+      # looks like with a match expr I don't even really need Ident.parse
+      case token.Ident(name):
+        result = Ident(name)
+        before_next = pctx.index
+        next_tok = pctx.try_consume_tok_type(token.Type.lPar)
+        if isinstance(next_tok, TokenizeErr): return next_tok
+        elif next_tok is None:
+          pctx.reset(before_next)
+        else: # is lPar
+          args = ArgExprList.hardFinishParse(pctx)
+          if isinstance(args, ParseError):
+            return args
+          result = Call(result, args.exprs)
+      case int(v) | float(v) | str(v) | bool(v):
+        result = Literal(v)
+      case token.Type.lPar:
+        ParenGroup.hardFinishParse(pctx)
+      case _:
+        # would be better to raise an error here...
+        return ParseNonLexError.UnexpectedToken
 
-  result = None
-  match tok.tok:
-    # looks like with a match expr I don't even really need Ident.parse
-    case token.Ident(name):
-      # FIXME: need to use lookahead here to determine if it is a call expression...
-      result = Ident(name)
-      before_next = pctx.index
-      next_tok = pctx.try_consume_tok_type(token.Type.lPar)
-      if isinstance(next_tok, TokenizeErr): return next_tok
-      elif next_tok is None:
-        pctx.reset(before_next)
-      else: # is lPar
-        args = CommaContext.parse(pctx)
-        result = Call(result, args)
-    case int(v) | float(v) | str(v) | bool(v):
-      result = Literal(v)
-    case token.Type.lPar:
-      ParenGroup.hardFinishParse(pctx)
-    case _:
-      # would be better to raise an error here...
-      return ParseNonLexError.UnexpectedToken
-
-  return result
+    return result
 
 
-# TODO: maybe don't allow None return?
-# TODO: replace with Expr.parse?
-def parseExpr(pctx: ParseContext) -> MaybeParsed[Expr]:
-  left = parsePrimary(pctx)
-  if left is None or isinstance(left, ParseError): return left
-  BinOp.hardFinishParse(pctx)

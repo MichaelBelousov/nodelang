@@ -3,7 +3,7 @@
 #XXX: this is a lexer, parsing methods are in the ast...
 
 from dataclasses import dataclass
-from typing import TypeVar, Union, Optional
+from typing import Sequence, TypeVar, Union, Optional
 from enum import Enum
 from . import token
 from .token import Token
@@ -127,7 +127,7 @@ class ParseContext:
       self.index += len(maybeToken.slice)
     return maybeToken
 
-  def try_consume_tok_type(self, tok_type: token.Type) -> ErrUnion[TokenizeErr, Optional[Token]]:
+  def try_consume_tok_type(self, *tok_type: token.Type) -> ErrUnion[TokenizeErr, Optional[Token]]:
     """consume a token, if it is not of the given tag, put it back"""
     start = self.index
     tok = self.consume_tok()
