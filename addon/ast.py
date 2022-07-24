@@ -60,9 +60,8 @@ class Node(ABC):
     """
     raise NotImplementedError()
 
-  @abstractmethod
-  def to_blender_node_args(self) -> Sequence[Mapping[str, Any]]:
-    pass
+  def to_blender_node_args(self) -> Optional[Sequence[Mapping[str, Any]]]:
+    raise TypeError(f'{type(self).__name__} does not coerce to a blender node')
 
 @dataclass(unsafe_hash=True)
 class Ident(Node):
@@ -82,7 +81,6 @@ class Ident(Node):
     if tok is None or isinstance(tok, ParseError):
       return tok
     return Ident(cast(token.Ident, tok.tok).name)
-
 
 class _TestIdent(unittest.TestCase):
   def test_parse(self):
@@ -151,6 +149,8 @@ class VarRef(Node, Named):
       return f'{self.name.serialize(c)}.{".".join(self.derefs)}'
 
 
+
+
 class Expr(Node):
   """non-instantiable static method class"""
   # TODO: Expr = Literal | VarRef # | Call | BinOp
@@ -168,7 +168,6 @@ class NamedArg(Node, Named):
 
   def serialize(self, c: SerializeCtx = SerializeCtx()):
     return f".{self.name.serialize(c)}={self.val.serialize(c)}"
-
 
 @dataclass
 class Call(Node, Named):
