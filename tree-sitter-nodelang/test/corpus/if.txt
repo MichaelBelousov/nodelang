@@ -2,64 +2,31 @@
 complex if
 ================================================================================
 
-# PRG implies no asserts.
-%if defined (PRG)
-    %ifndef DEBUG
-        %error Cannot define PRG and DEBUG.
-    %endif
-    %if !defined(NDEBUG) && PRG_NO_NDEBUG == "yes"
-        always:
-            |Setting NDEBUG=1 because PRG was set.
-        
-        NDEBUG = 1
-    %elif PRG_NO_NDEBUG == "maybe"
-        NDEBUG = -nope
-    %else
-        NDEBUG + 1
-    %endif
-%endif
+group "my frame"
+  {
+    const RGBA2: rgba = []
+  }
+  # const MixRGB: f4 = mix([0.5, 0.5, 0.5, 0.0], RGBA2, alpha=0.5)
+
+# One tough question is when to namify expressions
+# In this sample, we do it at frame boundaries otherwise you'd have an inline mix call
+# const 'Principled BSDF': bsdf = rough_metal_pbr_bsdf(.base_color='my frame'.MixRGB)
+
+# SURFACE_OUTPUT('Principled BSDF')
+
 
 --------------------------------------------------------------------------------
 
 (source_file
+  (ERROR
+    (UNEXPECTED '\n'))
+  (var_decl
+    (identifier)
+    (identifier)
+    (array))
+  (ERROR)
   (comment)
-  (if
-    (is_defined
-      (identifier))
-    (body
-      (if
-        (identifier)
-        (body
-          (diagnostic
-            (restOfLine))))
-      (if
-        (eq
-          (and
-            (not
-              (is_defined
-                (identifier)))
-            (identifier))
-          (string))
-        (body
-          (rule
-            (always)
-            (rule_body
-              (build_command
-                (command_mod
-                  (silent_echo))
-                (command
-                  (restOfLine)))))
-          (assign
-            (identifier)
-            (restOfLine)))
-        (elif_clause
-          (restOfLine)
-          (body
-            (assign
-              (identifier)
-              (restOfLine))))
-        (else_clause
-          (body
-            (append_assign
-              (identifier)
-              (restOfLine))))))))
+  (comment)
+  (comment)
+  (comment)
+  (comment))

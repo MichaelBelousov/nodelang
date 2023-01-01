@@ -1,29 +1,25 @@
-// TODO: escapes
-const ident_regex = /([a-zA-Z_][a-zA-Z0-9_]*)|('[^']*')/;
+const string_regex = /".*?(<!\\)"/m;
+const ident_regex = /[a-zA-Z_][a-zA-Z0-9_]*/;
 
-function commalist(l_delim, type, r_delim) {
-  return seq(l_delim, repeat(seq(type, ",")), optional(type), r_delim);
+function commalist(l_delim, type, comma, r_delim) {
+  return seq(l_delim, repeat(seq(type, comma)), optional(type), r_delim);
 }
 
 module.exports = grammar({
   name: "nodelang",
   rules: {
     // NOTE: the first rule is the top-level one!
-    source_file: ($) => repeat(choice($._stmt)),
-    body: ($) => repeat1(choice($._stmt)),
+    source_file: ($) => repeat(choice($._stmt, $._decl)),
+    body: ($) => seq("{", repeat($._stmt, $.decl), "}"),
 
-    identifier: ($) => ident_regex,
+    identifier: ($) => choice(ident_regex, string_regex),
     integer: ($) => /\d+/,
     float: ($) => /\d+\.\d+/,
-    array: ($) => commalist("[", $._expr, "]"),
-    // NOTE: are there limitations to tree-sitter supporting this lookbehind? It hasn't complained yet...
-    string: ($) => /".*?(<!\\)"/m,
-    _literal: ($) => choice($.integer, $.float, $.array, $.string),
+    array: ($) => commalist("[", $._expr, ",", "]"),
+    _literal: ($) => choice($.integer, $.float, $.array),
 
     body: ($) => seq("{", repeat($._stmt), "}"),
-    group: ($) => seq("group", field("name", $.identifier), $.body),
-
-    _stmt: ($) => choice($.if, $.var_decl),
+    group_decl: ($) => seq("group", field("name", $.identifier), $.body),
 
     var_decl: ($) =>
       seq(
@@ -33,6 +29,10 @@ module.exports = grammar({
         "=",
         field("value", $._expr)
       ),
+
+    _decl: ($) => choice($.var_decl, $.group_decl),
+
+    _stmt: ($) => choice($.if),
 
     word: ($) => $.identifier,
 
@@ -70,7 +70,7 @@ module.exports = grammar({
     eq: ($) => prec.left(2, seq($._expr, "==", $._expr)),
     or: ($) => prec.left(3, seq($._expr, "||", $._expr)),
     and: ($) => prec.left(4, seq($._expr, "&&", $._expr)),
-    call: ($) => prec.left(5, seq($._expr, commalist("(", $._arg, ")"))),
+    call: ($) => prec.left(5, seq($._expr, commalist("(", $._arg, ",", ")"))),
     _binary_expr: ($) => choice($.eq, $.or, $.and, $.call),
 
     _expr: ($) =>
