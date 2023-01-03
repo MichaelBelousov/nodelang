@@ -1,8 +1,14 @@
-const string_regex = /".*?(<!\\)"/m;
 const ident_regex = /[a-zA-Z_][a-zA-Z0-9_]*/;
 
 function commalist(l_delim, type, comma, r_delim) {
   return seq(l_delim, repeat(seq(type, comma)), optional(type), r_delim);
+}
+
+function quoted(delim, rdelim = delim) {
+  // NOTE: perhaps a custom scanner would be better here
+  return token(
+    seq(delim, repeat(choice(/\\"/, token.immediate(/[^\\"]+/))), rdelim)
+  );
 }
 
 module.exports = grammar({
@@ -12,7 +18,9 @@ module.exports = grammar({
     source_file: ($) => repeat(choice($._stmt, $._decl)),
     body: ($) => seq("{", repeat($._stmt, $.decl), "}"),
 
-    identifier: ($) => choice(ident_regex, string_regex),
+    quoted: ($) => choice(quoted("'"), quoted('"')),
+    identifier: ($) => choice(ident_regex, $.quoted),
+
     integer: ($) => /\d+/,
     float: ($) => /\d+\.\d+/,
     array: ($) => commalist("[", $._expr, ",", "]"),
@@ -32,7 +40,7 @@ module.exports = grammar({
 
     _decl: ($) => choice($.var_decl, $.group_decl),
 
-    _stmt: ($) => choice($.if),
+    _stmt: ($) => choice($.if, $._expr),
 
     word: ($) => $.identifier,
 
