@@ -2,16 +2,16 @@
 complex if
 ================================================================================
 
-group "my frame" {
+group 'my frame' {
   const RGBA2: rgba = []
-  const MixRGB: f4 = mix([0.5, 0.5, 0.5, 0.0], ."alpha"=0.5) # single quotes broken here
+  const MixRGB: f4 = mix([0.5, 0.5, 0.5, 0.0], .'alpha'=0.5) # single quotes broken here
 }
 
 # One tough question is when to namify expressions
 # In this sample, we do it at frame boundaries otherwise you'd have an inline mix call
-const "Principled BSDF": bsdf = rough_metal_pbr_bsdf(.base_color="my frame".MixRGB)
+const 'Principled BSDF': bsdf = rough_metal_pbr_bsdf(.base_color='my frame'.MixRGB)
 
-SURFACE_OUTPUT("Principled BSDF")
+SURFACE_OUTPUT('Principled BSDF')
 
 
 --------------------------------------------------------------------------------

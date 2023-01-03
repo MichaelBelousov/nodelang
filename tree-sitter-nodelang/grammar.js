@@ -7,7 +7,13 @@ function commalist(l_delim, type, comma, r_delim) {
 function quoted(delim, rdelim = delim) {
   // NOTE: perhaps a custom scanner would be better here
   return token(
-    seq(delim, repeat(choice(/\\"/, token.immediate(/[^\\"]+/))), rdelim)
+    seq(
+      delim,
+      repeat(
+        choice("\\" + rdelim, token.immediate(new RegExp(`[^\\\\${rdelim}]+`)))
+      ),
+      rdelim
+    )
   );
 }
 
