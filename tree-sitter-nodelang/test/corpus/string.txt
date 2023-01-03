@@ -8,6 +8,6 @@ const x = "test"
 
 (source_file
   (var_decl
-    (identifier)
-    (identifier
+    name: (identifier)
+    value: (identifier
       (quoted))))

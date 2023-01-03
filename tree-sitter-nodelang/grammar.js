@@ -16,7 +16,7 @@ module.exports = grammar({
   rules: {
     // NOTE: the first rule is the top-level one!
     source_file: ($) => repeat(choice($._stmt, $._decl)),
-    body: ($) => seq("{", repeat($._stmt, $.decl), "}"),
+    body: ($) => seq("{", repeat(choice($._stmt, $._decl)), "}"),
 
     quoted: ($) => choice(quoted("'"), quoted('"')),
     identifier: ($) => choice(ident_regex, $.quoted),
@@ -26,7 +26,6 @@ module.exports = grammar({
     array: ($) => commalist("[", $._expr, ",", "]"),
     _literal: ($) => choice($.integer, $.float, $.array),
 
-    body: ($) => seq("{", repeat($._stmt), "}"),
     group_decl: ($) => seq("group", field("name", $.identifier), $.body),
 
     var_decl: ($) =>
@@ -69,17 +68,20 @@ module.exports = grammar({
         optional(seq(".", field("name", $.identifier), "=")),
         field("value", $._expr)
       ),
+    args: ($) => commalist("(", $._arg, ",", ")"),
 
     // unary
     not: ($) => prec(1000, seq("!", $._expr)),
-    _unary_expr: ($) => choice($.not),
+    group: ($) => prec(1000, seq("(", $._expr, ")")),
+    _unary_expr: ($) => choice($.not, $.group),
 
     // binary
     eq: ($) => prec.left(2, seq($._expr, "==", $._expr)),
     or: ($) => prec.left(3, seq($._expr, "||", $._expr)),
     and: ($) => prec.left(4, seq($._expr, "&&", $._expr)),
-    call: ($) => prec.left(5, seq($._expr, commalist("(", $._arg, ",", ")"))),
-    _binary_expr: ($) => choice($.eq, $.or, $.and, $.call),
+    call: ($) => prec.left(5, seq(field("callee", $._expr), $.args)),
+    deref: ($) => prec.left(6, seq($._expr, ".", $.identifier)),
+    _binary_expr: ($) => choice($.eq, $.or, $.and, $.call, $.deref),
 
     _expr: ($) =>
       choice($._binary_expr, $._unary_expr, $._literal, $.identifier),
